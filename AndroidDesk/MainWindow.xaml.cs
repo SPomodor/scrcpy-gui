@@ -483,7 +483,7 @@ public sealed partial class MainWindow : Window
     private void DeviceClick(object sender, RoutedEventArgs e)
     {
         if (_devicePicker != null) { _devicePicker.Activate(); return; }
-        var window = new DeviceWindow(this);
+        var window = new DeviceWindow(this, _adb);
         _devicePicker = window;
         window.UpdateDevices(_devices, _serial ?? _selectedSerial);
         window.Closed += (_, _) => { if (_devicePicker == window) _devicePicker = null; };

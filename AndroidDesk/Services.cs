@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Net;
 
 namespace AndroidDesk;
 
@@ -44,7 +45,7 @@ internal sealed class Preferences
 
 internal sealed record Device(string Serial, string State, string Model)
 {
-    public string Label => $"{Model} · {(Serial.Contains(':') ? "Wi-Fi" : "USB")}";
+    public string Label => $"{Model} · {(Serial.Contains(':') || Serial.Contains("._adb-tls-") ? "Wi-Fi" : "USB")}";
     public string PickerLabel => $"{Label}\n{Serial}";
 }
 
@@ -103,6 +104,49 @@ internal sealed class AdbService
         return result;
     }
     public async Task<IReadOnlyList<Device>> DevicesAsync() => ParseDevices(Encoding.UTF8.GetString(await RunAsync(["devices", "-l"])));
+    public static string WifiEndpoint(string value)
+    {
+        value = value.Trim();
+        var separator = value.LastIndexOf(':');
+        if (separator < 1 || !IPAddress.TryParse(value[..separator].Trim('[', ']'), out var address) ||
+            !int.TryParse(value[(separator + 1)..], out var port) || port is < 1 or > 65535)
+            throw new ArgumentException("Укажите IP и порт с экрана телефона, например 192.168.0.10:37001.");
+        return address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? $"[{address}]:{port}" : $"{address}:{port}";
+    }
+    public async Task<IReadOnlyList<string>> DiscoverWifiAsync()
+    {
+        var output = Encoding.UTF8.GetString(await RunAsync(["mdns", "services"], 8));
+        var addresses = new List<string>();
+        foreach (var line in output.Split('\n'))
+        {
+            var parts = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 3 || parts[1] != "_adb-tls-connect._tcp") continue;
+            try { addresses.Add(WifiEndpoint(parts[2])); } catch (ArgumentException) { }
+        }
+        return addresses.Distinct().ToArray();
+    }
+    public async Task PairWifiAsync(string endpoint, string code)
+    {
+        endpoint = WifiEndpoint(endpoint);
+        if (code.Length != 6 || code.Any(c => c is < '0' or > '9'))
+            throw new ArgumentException("Введите шестизначный код с экрана сопряжения телефона.");
+        var output = Encoding.UTF8.GetString(await RunAsync(["pair", endpoint, code], 20));
+        if (!output.Contains("Successfully paired", StringComparison.OrdinalIgnoreCase))
+            throw new IOException("Не удалось выполнить сопряжение. Проверьте код и порт сопряжения на телефоне.");
+    }
+    public async Task<string> ConnectWifiAsync(string endpoint)
+    {
+        endpoint = WifiEndpoint(endpoint);
+        var output = Encoding.UTF8.GetString(await RunAsync(["connect", endpoint], 15));
+        if (!output.Contains("connected to", StringComparison.OrdinalIgnoreCase))
+            throw new IOException("Не удалось подключиться. Проверьте Wi-Fi, сопряжение и порт подключения на телефоне.");
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            if ((await DevicesAsync()).Any(x => x.Serial == endpoint && x.State == "device")) return endpoint;
+            await Task.Delay(250);
+        }
+        throw new IOException("Телефон найден, но ещё не готов. Проверьте разрешение отладки на телефоне и попробуйте снова.");
+    }
     public Task<byte[]> KeyAsync(string serial, int key) => RunAsync(["-s", serial, "shell", "input", "keyevent", key.ToString()]);
     public async Task<byte[]> CaptureFrameAsync(string serial)
     {

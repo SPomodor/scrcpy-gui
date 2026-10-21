@@ -1,5 +1,25 @@
 using AndroidDesk;
 
+if (args is ["--wifi-validation"] || args.Length == 2 && args[0] == "--wifi")
+{
+    foreach (var invalid in new[] { "", "192.168.0.1", "192.168.0.1:0", "192.168.0.1:65536", "--help", "host:5555" })
+    {
+        try { AdbService.WifiEndpoint(invalid); throw new Exception("Invalid endpoint accepted."); }
+        catch (ArgumentException) { }
+    }
+    if (AdbService.WifiEndpoint(" [::1]:5555 ") != "[::1]:5555") throw new Exception("IPv6 parsing failed.");
+    var wifi = new AdbService();
+    try { await wifi.PairWifiAsync("127.0.0.1:5555", "123"); throw new Exception("Invalid pairing code accepted."); }
+    catch (ArgumentException) { }
+    Console.WriteLine("Wi-Fi endpoint and pairing-code validation passed.");
+    if (args.Length == 1) return 0;
+    var addresses = await wifi.DiscoverWifiAsync();
+    Console.WriteLine($"Discovered wireless endpoints: {addresses.Count}");
+    var endpoint = await wifi.ConnectWifiAsync(args[1]);
+    var frame = await wifi.CaptureFrameAsync(endpoint);
+    Console.WriteLine($"Wi-Fi connection and real PNG capture passed ({frame.Length} bytes).");
+    return 0;
+}
 if (args.Length is < 1 or > 2) { Console.Error.WriteLine("Usage: dotnet run --project AndroidDesk.Smoke -- DEVICE_SERIAL [--clipboard]"); return 2; }
 var tools = new AdbService();
 var serial = args[0];

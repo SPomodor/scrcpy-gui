@@ -122,28 +122,55 @@ internal sealed class SettingsWindow : Window
 
 internal sealed class DeviceWindow : Window
 {
-    private readonly ListView _list = new() { SelectionMode = ListViewSelectionMode.Single, DisplayMemberPath = "Label", MinHeight = 100 };
+    private readonly ListView _list = new() { SelectionMode = ListViewSelectionMode.Single, DisplayMemberPath = "PickerLabel" };
     private readonly TextBlock _hint = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.65 };
     private readonly Button _connect = new() { Content = "Подключить", HorizontalAlignment = HorizontalAlignment.Stretch };
     private string _signature = "";
+    private bool _connecting, _closed;
+    private WifiWindow? _wifi;
     public Func<string, Task>? DeviceRequested { get; set; }
-    public DeviceWindow(Window owner)
+    public DeviceWindow(Window owner, AdbService adb)
     {
         Title = "Выбор устройства";
         SystemBackdrop = new MicaBackdrop();
-        WindowStyle.Own(this, owner, 360, 300);
-        var panel = new StackPanel { Spacing = 18, Padding = new Thickness(24) };
-        panel.Children.Add(new TextBlock { Text = "Устройства", FontSize = 22, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        panel.Children.Add(_hint); panel.Children.Add(_list); panel.Children.Add(_connect);
-        _list.SelectionChanged += (_, _) => _connect.IsEnabled = _list.SelectedItem != null;
+        WindowStyle.Own(this, owner, 420, 580);
+        var root = new Grid { Padding = new Thickness(24), RowSpacing = 16, Background = (Brush)Application.Current.Resources["ApplicationPageBackgroundThemeBrush"] };
+        foreach (var height in new[] { GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto })
+            root.RowDefinitions.Add(new RowDefinition { Height = height });
+        var header = new Grid { ColumnSpacing = 12 };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.Children.Add(new TextBlock { Text = "Устройства", FontSize = 22, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+        var wifi = new Button { Content = "Wi-Fi" };
+        Grid.SetColumn(wifi, 1); header.Children.Add(wifi);
+        wifi.Click += (_, _) =>
+        {
+            if (_wifi != null) { _wifi.Activate(); return; }
+            var window = new WifiWindow(this, adb);
+            _wifi = window;
+            window.Closed += (_, _) => { if (_wifi == window) _wifi = null; };
+            window.Connected = async serial =>
+            {
+                var devices = (await adb.DevicesAsync()).Where(x => x.State == "device").ToArray();
+                if (_closed) return;
+                UpdateDevices(devices, serial);
+                _list.SelectedItem = devices.FirstOrDefault(x => x.Serial == serial);
+            };
+            window.Activate();
+        };
+        root.Children.Add(header);
+        Grid.SetRow(_hint, 1); root.Children.Add(_hint);
+        Grid.SetRow(_list, 2); root.Children.Add(_list);
+        Grid.SetRow(_connect, 3); root.Children.Add(_connect);
+        _list.SelectionChanged += (_, _) => _connect.IsEnabled = !_connecting && _list.SelectedItem != null;
         _connect.Click += async (_, _) =>
         {
-            if (_list.SelectedItem is not Device device || DeviceRequested == null) return;
-            _connect.IsEnabled = false;
-            await DeviceRequested(device.Serial);
-            Close();
+            if (_connecting || _list.SelectedItem is not Device device || DeviceRequested == null) return;
+            _connecting = true; _connect.IsEnabled = false;
+            try { await DeviceRequested(device.Serial); if (!_closed) Close(); }
+            finally { _connecting = false; if (!_closed) _connect.IsEnabled = _list.SelectedItem != null; }
         };
-        var root = new ScrollViewer { Content = panel, Background = (Brush)Application.Current.Resources["ApplicationPageBackgroundThemeBrush"] };
+        Closed += (_, _) => { _closed = true; _wifi?.Close(); };
         Content = root;
         root.Loaded += (_, _) => WindowStyle.Apply(this, root);
     }
@@ -157,8 +184,91 @@ internal sealed class DeviceWindow : Window
             _list.ItemsSource = devices;
             _list.SelectedItem = devices.FirstOrDefault(x => x.Serial == selected) ?? devices.FirstOrDefault();
         }
-        _hint.Text = devices.Count == 0 ? "Устройства не найдены. Подключите телефон и разрешите отладку. Список обновляется автоматически." : "Выберите устройство. Подключённые по USB и Wi-Fi.";
-        _connect.IsEnabled = _list.SelectedItem != null;
+        _hint.Text = devices.Count == 0 ? "Подключите телефон по USB или добавьте его по Wi-Fi. Список обновляется автоматически." : "Выберите телефон · USB или Wi-Fi";
+        _connect.IsEnabled = !_connecting && _list.SelectedItem != null;
+    }
+}
+
+internal sealed class WifiWindow : Window
+{
+    private readonly AdbService _adb;
+    private readonly TextBox _address = new() { Header = "Адрес подключения · IP:порт", PlaceholderText = "192.168.0.10:37001" };
+    private readonly TextBox _pairAddress = new() { Header = "Адрес сопряжения · IP:порт", PlaceholderText = "192.168.0.10:40001" };
+    private readonly PasswordBox _code = new() { Header = "Код сопряжения", MaxLength = 6 };
+    private readonly ComboBox _discovered = new() { Header = "Найдено в сети", PlaceholderText = "Выберите адрес", HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly Button _refresh = new() { Content = "Обновить", VerticalAlignment = VerticalAlignment.Bottom };
+    private readonly Button _connect = new() { Content = "Добавить устройство", HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly Button _pair = new() { Content = "Выполнить сопряжение", HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.75 };
+    private bool _busy, _closed;
+    public Func<string, Task>? Connected { get; set; }
+    public WifiWindow(Window owner, AdbService adb)
+    {
+        _adb = adb;
+        Title = "Подключение по Wi-Fi";
+        SystemBackdrop = new MicaBackdrop();
+        WindowStyle.Own(this, owner, 450, 860);
+        var root = new Grid { Padding = new Thickness(24), RowSpacing = 16, Background = (Brush)Application.Current.Resources["ApplicationPageBackgroundThemeBrush"] };
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        var panel = new StackPanel { Spacing = 16 };
+        panel.Children.Add(new TextBlock { Text = "Подключение по Wi-Fi", FontSize = 22, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        panel.Children.Add(new TextBlock { Text = "Android 11+ · Компьютер и телефон должны быть в одной сети. На телефоне откройте «Для разработчиков → Беспроводная отладка» и включите её.", TextWrapping = TextWrapping.Wrap, Opacity = 0.7 });
+        var discovery = new Grid { ColumnSpacing = 8 };
+        discovery.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        discovery.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        discovery.Children.Add(_discovered); Grid.SetColumn(_refresh, 1); discovery.Children.Add(_refresh);
+        panel.Children.Add(discovery); panel.Children.Add(_address);
+        panel.Children.Add(new TextBlock { Text = "Используйте IP и порт с главного экрана беспроводной отладки. После первого сопряжения достаточно добавить устройство.", TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.65 });
+        var pairing = new StackPanel { Spacing = 12, Margin = new Thickness(0, 12, 0, 0) };
+        pairing.Children.Add(new TextBlock { Text = "На телефоне выберите «Сопряжение с помощью кода». Введите адрес и код из открывшегося окна. Порт сопряжения отличается от порта подключения.", TextWrapping = TextWrapping.Wrap, FontSize = 12 });
+        pairing.Children.Add(_pairAddress); pairing.Children.Add(_code); pairing.Children.Add(_pair);
+        var expander = new Expander { Header = "Первое подключение · сопряжение", Content = pairing, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+        panel.Children.Add(expander); panel.Children.Add(_status);
+        root.Children.Add(new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+        Grid.SetRow(_connect, 1); root.Children.Add(_connect);
+        _discovered.SelectionChanged += (_, _) => { if (_discovered.SelectedItem is string address) _address.Text = address; };
+        _refresh.Click += async (_, _) => await PerformAsync(RefreshAsync);
+        _pair.Click += async (_, _) => await PerformAsync(async () =>
+        {
+            await _adb.PairWifiAsync(_pairAddress.Text, _code.Password);
+            _code.Password = "";
+            try { await RefreshAsync(); } catch { /* A successful pairing does not depend on mDNS. */ }
+            _status.Text = "Сопряжение выполнено. Проверьте адрес подключения и нажмите «Добавить устройство».";
+        });
+        _connect.Click += async (_, _) => await PerformAsync(async () =>
+        {
+            var serial = await _adb.ConnectWifiAsync(_address.Text);
+            if (_closed) return;
+            if (Connected != null) await Connected(serial);
+            if (!_closed) Close();
+        });
+        Content = root;
+        root.Loaded += async (_, _) => { WindowStyle.Apply(this, root); await PerformAsync(RefreshAsync); };
+        Closed += (_, _) => { _closed = true; _code.Password = ""; };
+    }
+    private async Task RefreshAsync()
+    {
+        var addresses = await _adb.DiscoverWifiAsync();
+        if (_closed) return;
+        var selected = _address.Text;
+        _discovered.ItemsSource = addresses;
+        if (addresses.Contains(selected)) _discovered.SelectedItem = selected;
+        else if (addresses.Count == 1 && string.IsNullOrWhiteSpace(selected)) _discovered.SelectedItem = addresses[0];
+        _status.Text = addresses.Count == 0 ? "Автопоиск не нашёл устройств. Можно ввести адрес с телефона вручную." : "Найден адрес беспроводной отладки. При первом подключении выполните сопряжение.";
+    }
+    private async Task PerformAsync(Func<Task> operation)
+    {
+        if (_busy || _closed) return;
+        _busy = true; SetEnabled(false); _status.Text = "Подождите…";
+        try { await operation(); }
+        catch (OperationCanceledException) { if (!_closed) _status.Text = "Телефон не ответил. Проверьте сеть и адрес и попробуйте снова."; }
+        catch (Exception ex) { if (!_closed) _status.Text = string.IsNullOrWhiteSpace(ex.Message) ? "Не удалось подключиться. Проверьте адрес, код и сеть." : ex.Message; }
+        finally { _busy = false; if (!_closed) SetEnabled(true); }
+    }
+    private void SetEnabled(bool enabled)
+    {
+        foreach (var control in new Control[] { _refresh, _connect, _pair, _address, _pairAddress, _code, _discovered }) control.IsEnabled = enabled;
     }
 }
 
