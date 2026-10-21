@@ -12,7 +12,7 @@ dotnet run --project .\AndroidDesk.Smoke -- --language
 dotnet run --project .\AndroidDesk.Smoke -- --wifi-validation
 ```
 
-The `scrcpy/` tools are versioned with the project. Avoid replacing them as part of unrelated changes: the clipboard control protocol depends on the bundled scrcpy-server version.
+The x64 `scrcpy/` tools are versioned with the project. Use `build.ps1 -Architecture x86` or `-Architecture arm64` for other targets; matching upstream bundles are downloaded and SHA-256 verified. Avoid replacing them as part of unrelated changes: the clipboard control protocol depends on the bundled scrcpy-server version.
 
 ## Pull requests
 

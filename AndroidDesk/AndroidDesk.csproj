@@ -5,9 +5,13 @@
     <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
     <RootNamespace>AndroidDesk</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Platforms>x64</Platforms>
-    <PlatformTarget>x64</PlatformTarget>
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <Platforms>x64;x86;ARM64</Platforms>
+    <Platform Condition="'$(Platform)' == '' Or '$(Platform)' == 'AnyCPU'">x64</Platform>
+    <PlatformTarget>$(Platform)</PlatformTarget>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' And '$(Platform)' == 'x64'">win-x64</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' And '$(Platform)' == 'x86'">win-x86</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' And '$(Platform)' == 'ARM64'">win-arm64</RuntimeIdentifier>
+    <ScrcpyToolsDirectory Condition="'$(ScrcpyToolsDirectory)' == ''">$(MSBuildThisFileDirectory)..\scrcpy</ScrcpyToolsDirectory>
     <UseWinUI>true</UseWinUI>
     <WindowsPackageType>None</WindowsPackageType>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
@@ -21,7 +25,7 @@
     <Content Include="..\licenses\**\*" Link="licenses\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <EmbeddedResource Include="Strings.en.json" LogicalName="AndroidDesk.Strings.en.json" WithCulture="false" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
-    <Content Include="..\scrcpy\**\*" Link="scrcpy\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(ScrcpyToolsDirectory)\**\*" Link="scrcpy\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <!-- Unpackaged WinUI generates these after the SDK has collected publish content. -->
   <Target Name="PublishWinUIResources" AfterTargets="Publish">
@@ -29,5 +33,9 @@
       <WinUIResource Include="$(TargetDir)*.xbf;$(TargetDir)$(AssemblyName).pri" />
     </ItemGroup>
     <Copy SourceFiles="@(WinUIResource)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="ValidateArchitectureTools" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('$(ScrcpyToolsDirectory)\scrcpy.exe')" Text="scrcpy.exe is missing. Run build.ps1 -Architecture x64/x86/arm64 to prepare the matching tools." />
+    <Error Condition="'$(Platform)' != 'x64' And '$(ScrcpyToolsDirectory)' == '$(MSBuildThisFileDirectory)..\scrcpy'" Text="The checked-in scrcpy bundle is x64. Use build.ps1 -Architecture x86/arm64 to download matching tools." />
   </Target>
 </Project>

@@ -11,8 +11,12 @@ internal static class Native
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(nint window);
     [DllImport("user32.dll", SetLastError = true)] private static extern nint SetParent(nint child, nint parent);
     [DllImport("user32.dll")] internal static extern nint GetParent(nint window);
-    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern nint GetStyle(nint window, int index);
-    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)] private static extern nint SetStyle(nint window, int index, nint value);
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)] private static extern nint GetStyle64(nint window, int index);
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)] private static extern nint SetStyle64(nint window, int index, nint value);
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongW", SetLastError = true)] private static extern int GetStyle32(nint window, int index);
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongW", SetLastError = true)] private static extern int SetStyle32(nint window, int index, int value);
+    private static nint GetStyle(nint window, int index) => IntPtr.Size == 8 ? GetStyle64(window, index) : GetStyle32(window, index);
+    private static nint SetStyle(nint window, int index, nint value) => IntPtr.Size == 8 ? SetStyle64(window, index, value) : SetStyle32(window, index, unchecked((int)value));
     [DllImport("user32.dll", SetLastError = true)] internal static extern bool SetWindowPos(nint window, nint after, int x, int y, int width, int height, uint flags);
     [DllImport("user32.dll")] internal static extern bool ShowWindow(nint window, int command);
     [DllImport("user32.dll")] internal static extern bool PostMessage(nint window, uint message, nint wParam, nint lParam);
@@ -72,7 +76,7 @@ internal static class Native
     internal static void ForwardKey(nint child, int key, uint scanCode, bool extended, bool repeat, bool up)
     {
         long flags = 1 | ((long)scanCode << 16) | (extended ? 1L << 24 : 0) | (repeat || up ? 1L << 30 : 0) | (up ? 1L << 31 : 0);
-        PostMessage(child, up ? 0x0101u : 0x0100u, key, (nint)flags);
+        PostMessage(child, up ? 0x0101u : 0x0100u, key, unchecked((nint)flags));
     }
     internal static (int Width, int Height) NonClientSize(nint window)
     {

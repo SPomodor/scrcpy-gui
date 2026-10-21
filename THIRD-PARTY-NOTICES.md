@@ -4,7 +4,7 @@ The [MIT license](LICENSE) covers the Android Desk / scrcpy GUI application code
 
 ## scrcpy bundle
 
-The repository contains the supplied Windows x64 scrcpy 5.0.1 bundle in `scrcpy/`. These components are used as external tools and shared libraries; the application does not implement a replacement scrcpy engine. Their original license files and notices must accompany redistributed builds.
+The repository contains the supplied Windows x64 scrcpy 5.0.1 bundle in `scrcpy/`. Release builds download the official matching x64, x86 or ARM64 bundle using pinned SHA-256 checksums in `scripts/scrcpy-bundles.json`. The official ARM64 bundle includes x86 ADB and its matching x86 DLLs; Windows on Arm executes that external tool through OS emulation. These components are used as external tools and shared libraries; the application does not implement a replacement scrcpy engine. Their original license files and notices must accompany redistributed builds.
 
 | Component | Version | License / notice | Upstream source |
 | --- | --- | --- | --- |

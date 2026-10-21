@@ -21,12 +21,24 @@ The phone screen fills the window, with a narrow quick access toolbar on the rig
 
 ## Requirements
 
-- Windows 10 version 2004 or later, x64. The interface is designed for Windows 11.
+- Windows 10 version 2004 or later, with an x64, x86 or ARM64 build matching your **PC**, not the Android phone. The interface is designed for Windows 11.
 - An Android phone with debugging enabled and the computer authorized on the phone.
 - Device audio recording and code-based wireless debugging require Android 11+.
 - To build: .NET SDK 8 or later and the Windows SDK / WinUI development tools. NuGet access is needed on the first build. Visual Studio with Windows application development tools is recommended.
 
 The published app includes .NET and Windows App SDK; a separate runtime installation, MSIX package or administrator access is not required.
+
+## Portable downloads
+
+Download a ZIP from [Releases](https://github.com/SPomodor/scrcpy-gui/releases), extract it to its own folder and run `AndroidDesk.exe` inside. Keep the entire extracted folder together. There is no installer or single-file EXE.
+
+| Archive suffix | Windows PC |
+| --- | --- |
+| `windows-x64.zip` | Intel/AMD 64-bit Windows; recommended for most PCs |
+| `windows-x86.zip` | 32-bit Windows, also runs on x64 Windows |
+| `windows-arm64.zip` | Windows on Arm; native ARM64 GUI/scrcpy, upstream x86 ADB through OS emulation |
+
+ARM64 is cross-built and its package contents are validated. It has not been tested on physical ARM64 hardware. `SHA256SUMS.txt` in each release lists the archive checksums.
 
 ## Build and run
 
@@ -46,9 +58,26 @@ dotnet publish .\AndroidDesk\AndroidDesk.csproj -c Release -p:Platform=x64 -o .\
 
 After publishing, you can also double-click `Android Desk.cmd`. To move the app to another computer, copy the **entire** `dist/AndroidDesk` folder. Close the running app before publishing into the same folder again.
 
-The repository includes the supplied **scrcpy 5.0.1 Windows x64 bundle** in `scrcpy/`. Its tools are copied into the app output. The clipboard bridge uses the matching scrcpy-server protocol, so do not replace just one binary with an unrelated version.
+The repository includes the supplied **scrcpy 5.0.1 Windows x64 bundle** in `scrcpy/`. Other architectures and release packaging download matching official 5.0.1 bundles with pinned SHA-256 checksums; caches stay in ignored `artifacts/tools/`. Tools are copied into the app output. The clipboard bridge uses the matching scrcpy-server protocol, so do not replace just one binary with an unrelated version.
 
-The [Windows build workflow](.github/workflows/build.yml) builds the app, runs checks that do not require a phone and uploads a portable build as a GitHub Actions artifact. Artifacts require a completed workflow run; no installer is generated.
+The [Windows workflow](.github/workflows/build.yml) builds and validates x64, x86 and ARM64 ZIP packages. Main-branch and PR builds upload Actions artifacts; version tags also publish permanent GitHub Release assets after all three builds succeed.
+
+```powershell
+.\build.ps1 -Publish -Architecture x86       # dist/AndroidDesk-x86
+.\build.ps1 -Publish -Architecture arm64     # dist/AndroidDesk-arm64
+.\scripts\New-ReleasePackage.ps1 -Architecture x64 -Version 1.0.0
+```
+
+`-Architecture` defaults to x64. Other builds need network access on their first run. Direct x86/ARM64 MSBuild invocations must set `ScrcpyToolsDirectory` to a matching prepared bundle; the build script handles that automatically.
+
+To publish the next release after committing and pushing the changes:
+
+```powershell
+git tag -a v1.0.1 -m "Release v1.0.1"
+git push origin v1.0.1
+```
+
+The workflow builds three ZIPs, verifies their checksums, generates release notes and attaches the ZIPs plus `SHA256SUMS.txt`. Tags such as `v1.0.1-rc.1` create prereleases. Pushing `main` alone does not create a release.
 
 ## Connect a phone
 
