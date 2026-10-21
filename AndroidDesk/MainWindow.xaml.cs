@@ -40,6 +40,11 @@ public sealed partial class MainWindow : Window
     private double _aspect = 0.45;
     private SettingsWindow? _settings;
     private DeviceWindow? _devicePicker;
+    private readonly QuickCommandStore _quickCommands = new();
+    private CommandsWindow? _commandsWindow;
+    private readonly CancellationTokenSource _commandShutdown = new();
+    private readonly HashSet<Guid> _runningQuickCommands = [];
+    private (string Name, string Serial, CommandResult Result)? _lastQuickResult;
     private NotificationWindow? _notification;
     private string? _lastError;
     internal static string Videos => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "AndroidDesk");
@@ -59,7 +64,9 @@ public sealed partial class MainWindow : Window
             _closing = true;
             _poll.Stop(); _clock.Stop(); _inputFocus.Stop();
             Clipboard.ContentChanged -= ClipboardChanged;
-            _settings?.Close(); _devicePicker?.Close(); _notification?.Close();
+            _commandShutdown.Cancel();
+            _quickCommands.Changed -= RebuildPinnedCommands;
+            _settings?.Close(); _devicePicker?.Close(); _commandsWindow?.Close(); _notification?.Close();
             await ExecuteAsync(async () => await StopAsync());
             _allowClose = true;
             Close();
@@ -98,6 +105,8 @@ public sealed partial class MainWindow : Window
         Clipboard.ContentChanged += ClipboardChanged;
         _clock.Tick += (_, _) => RecordTime.Text = $"{DateTime.Now - _recordStarted:mm\\:ss}";
         ObserveSession(_session);
+        _quickCommands.Changed += RebuildPinnedCommands;
+        RebuildPinnedCommands();
         UpdateControls();
     }
     private void ForwardHostKey(KeyRoutedEventArgs e, bool up)
@@ -479,6 +488,52 @@ public sealed partial class MainWindow : Window
             return applied;
         };
         window.Activate();
+    }
+    private string? CommandDevice() => _devices.Any(x => x.Serial == (_serial ?? _selectedSerial)) ? _serial ?? _selectedSerial : null;
+    private void CommandsClick(object sender, RoutedEventArgs e)
+    {
+        _phoneInputActive = false;
+        if (_commandsWindow != null) { _commandsWindow.Activate(); return; }
+        var window = new CommandsWindow(this, _adb, _quickCommands, CommandDevice);
+        _commandsWindow = window;
+        if (_lastQuickResult is { } last) window.DisplayResult(last.Name, last.Serial, last.Result);
+        window.Closed += (_, _) => { if (_commandsWindow == window) _commandsWindow = null; };
+        window.Activate();
+    }
+    private void RebuildPinnedCommands()
+    {
+        PinnedCommands.Children.Clear();
+        foreach (var command in _quickCommands.Items.Where(x => x.Pinned))
+        {
+            var button = new Button
+            {
+                Style = (Style)Root.Resources["QuickButton"],
+                Content = new TextBlock { Text = new string(command.Name.Where(char.IsLetterOrDigit).Take(2).ToArray()).ToUpperInvariant() is { Length: > 0 } abbreviation ? abbreviation : ">_", FontFamily = new FontFamily("Segoe UI"), FontSize = 11, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
+                IsEnabled = !_runningQuickCommands.Contains(command.Id)
+            };
+            AutomationProperties.SetName(button, "Выполнить: " + command.Name);
+            ToolTipService.SetToolTip(button, command.Name + "\n" + command.Command);
+            button.Click += async (_, _) => await RunPinnedAsync(command);
+            PinnedCommands.Children.Add(button);
+        }
+    }
+    private async Task RunPinnedAsync(QuickCommand command)
+    {
+        if (_closing || !_runningQuickCommands.Add(command.Id)) return;
+        RebuildPinnedCommands();
+        try
+        {
+            var serial = CommandDevice() ?? throw new InvalidOperationException("Сначала подключите и выберите телефон.");
+            var result = await CommandRunner.RunAsync(_adb, serial, command.Command, _commandShutdown.Token);
+            if (_closing) return;
+            _lastQuickResult = (command.Name, serial, result);
+            _commandsWindow?.DisplayResult(command.Name, serial, result);
+            if (result.ExitCode == 0) Notify(command.Name + " · выполнено", "Результат — в окне быстрых команд.");
+            else Notify(command.Name + " · ошибка", $"Код {result.ExitCode}. {result.Output}", error: true);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { if (!_closing) Notify("Команда не выполнена", ex.Message, error: true); }
+        finally { _runningQuickCommands.Remove(command.Id); if (!_closing) RebuildPinnedCommands(); }
     }
     private void DeviceClick(object sender, RoutedEventArgs e)
     {

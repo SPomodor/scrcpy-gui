@@ -21,6 +21,7 @@
       <StackPanel Spacing="2">
         <Button x:Name="SettingsButton" Style="{StaticResource QuickButton}" Content="&#xE712;" AutomationProperties.Name="Настройки" ToolTipService.ToolTip="Настройки" Click="SettingsClick"/>
         <Button x:Name="DeviceButton" Style="{StaticResource QuickButton}" Content="&#xE772;" AutomationProperties.Name="Выбор устройства" ToolTipService.ToolTip="Выбор устройства" Click="DeviceClick"/>
+        <Button Style="{StaticResource QuickButton}" Content="&#xE756;" AutomationProperties.Name="Быстрые команды" ToolTipService.ToolTip="Быстрые команды ADB" Click="CommandsClick"/>
         <Button x:Name="ConnectButton" Style="{StaticResource QuickButton}" Content="&#xE8D4;" AutomationProperties.Name="Подключить или отключить" ToolTipService.ToolTip="Подключить / отключить" Click="ConnectClick"/>
         <Border Height="1" Margin="5,5" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
         <StackPanel x:Name="PhoneControls" Spacing="2">
@@ -43,6 +44,9 @@
         <Button x:Name="RecordButton" Style="{StaticResource QuickButton}" Foreground="#F06C75" Content="&#xE7C8;" AutomationProperties.Name="Начать запись" ToolTipService.ToolTip="Начать запись" Click="RecordClick"/>
         <TextBlock x:Name="RecordTime" Visibility="Collapsed" FontSize="9" Foreground="#F06C75" HorizontalAlignment="Center"/>
       </StackPanel>
+      <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled" Margin="0,8,0,8">
+        <StackPanel x:Name="PinnedCommands" Spacing="2"/>
+      </ScrollViewer>
       <StackPanel Grid.Row="2" Spacing="2">
         <Button Style="{StaticResource QuickButton}" Content="&#xE8B9;" AutomationProperties.Name="По размеру телефона" ToolTipService.ToolTip="Подогнать окно по телефону" Click="FitClick"/>
       </StackPanel>
