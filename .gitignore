@@ -1,7 +1,57 @@
-**/bin/
-**/obj/
+# .NET / Visual Studio / Rider
+**/[Bb]in/
+**/[Oo]bj/
 .vs/
-dist/
+.idea/
 *.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.DotSettings.user
+*.VC.db
+
+# Build, publish and test output
+/dist/
+/artifacts/
+/publish/
+**/TestResults/
+coverage/
+*.coverage
+*.coveragexml
+*.nupkg
+*.snupkg
+*.dmp
 *.log
-scrcpy-help.txt
+/scrcpy-help.txt
+
+# Local app data, ADB credentials and secrets
+.env
+.env.*
+!.env.example
+.android/
+adbkey
+adbkey.pub
+*.pfx
+*.p12
+*.pem
+*.key
+settings.json
+commands.json
+commands.json.*
+*.unreadable-*
+
+# Generated captures and recordings (keep source assets trackable)
+/Recordings/
+/Screenshots/
+Recording_*.mp4
+Recording_*.mkv
+Smoke_AAC_*.mp4
+Screenshot_*.png
+
+# OS / editor temporary files
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.tmp
+*.bak
+*~

@@ -1,0 +1,15 @@
+name: Feature request
+description: Suggest an improvement / Предложить улучшение
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What would you like to do?
+      description: Describe the use case. English or Russian is welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Suggested behavior
+      description: Explain how it could fit the compact interface.

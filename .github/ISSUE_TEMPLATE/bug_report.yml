@@ -1,0 +1,28 @@
+name: Bug report
+description: Report a reproducible problem / Сообщить об ошибке
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: English or Russian is welcome. Describe expected and actual behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Windows version, Android version, app commit/version, USB or Wi-Fi.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Logs or screenshots
+      description: Optional. Remove device serials, IP addresses, pairing codes and personal information. Never include ADB private keys.
