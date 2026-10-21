@@ -25,6 +25,9 @@ internal sealed class Preferences
     public int Bitrate { get; set; } = 8;
     public bool External { get; set; }
     public bool AutoConnect { get; set; } = true;
+    public string RecordingFormat { get; set; } = "mp4";
+    public bool RecordAudio { get; set; } = true;
+    public Preferences Copy() => (Preferences)MemberwiseClone();
     public static Preferences Load()
     {
         try { return JsonSerializer.Deserialize<Preferences>(File.ReadAllText(Path.Combine(Log.Folder, "settings.json"))) ?? new(); }
@@ -40,6 +43,7 @@ internal sealed class Preferences
 internal sealed record Device(string Serial, string State, string Model)
 {
     public string Label => $"{Model} · {(Serial.Contains(':') ? "Wi-Fi" : "USB")}";
+    public string PickerLabel => $"{Label}\n{Serial}";
 }
 
 internal sealed class AdbService
@@ -122,7 +126,14 @@ internal sealed class ScrcpySession
         if (_process != null) throw new InvalidOperationException("Сессия уже запущена.");
         var info = new ProcessStartInfo(tools.Scrcpy) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = tools.Tools, RedirectStandardOutput = true, RedirectStandardError = true };
         info.Environment["ADB"] = tools.Adb;
-        foreach (var arg in new[] {"--serial", serial, "--window-title=AndroidDesk • scrcpy", "--no-audio", "--video-codec=h264", $"--max-size={settings.MaxSize}", $"--max-fps={settings.Fps}", $"--video-bit-rate={settings.Bitrate}M", "--video-buffer=0", "--no-window-aspect-ratio-lock", "--window-width=420", "--window-height=780"}) info.ArgumentList.Add(arg);
+        foreach (var arg in new[] {"--serial", serial, "--window-title=AndroidDesk • scrcpy", "--video-codec=h264", $"--max-size={settings.MaxSize}", $"--max-fps={settings.Fps}", $"--video-bit-rate={settings.Bitrate}M", "--video-buffer=0", "--no-window-aspect-ratio-lock", "--window-width=420", "--window-height=780"}) info.ArgumentList.Add(arg);
+        if (recording != null && settings.RecordAudio)
+        {
+            info.ArgumentList.Add("--audio-codec=aac");
+            info.ArgumentList.Add("--require-audio");
+            info.ArgumentList.Add("--no-audio-playback");
+        }
+        else info.ArgumentList.Add("--no-audio");
         if (!settings.External) info.ArgumentList.Add("--window-borderless");
         if (recording != null) info.ArgumentList.Add($"--record={recording}");
         var process = Process.Start(info) ?? throw new IOException("Не удалось запустить scrcpy.");
