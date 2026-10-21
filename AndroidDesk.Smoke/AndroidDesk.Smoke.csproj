@@ -6,5 +6,6 @@
   <ItemGroup>
     <Compile Include="..\AndroidDesk\Services.cs" Link="Services.cs"/>
     <Compile Include="..\AndroidDesk\Native.cs" Link="Native.cs"/>
+    <Compile Include="..\AndroidDesk\ClipboardBridge.cs" Link="ClipboardBridge.cs"/>
   </ItemGroup>
 </Project>

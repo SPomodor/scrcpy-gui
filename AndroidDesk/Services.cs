@@ -27,6 +27,8 @@ internal sealed class Preferences
     public bool AutoConnect { get; set; } = true;
     public string RecordingFormat { get; set; } = "mp4";
     public bool RecordAudio { get; set; } = true;
+    public bool PhysicalKeyboard { get; set; } = true;
+    public bool SharedClipboard { get; set; } = true;
     public Preferences Copy() => (Preferences)MemberwiseClone();
     public static Preferences Load()
     {
@@ -134,6 +136,7 @@ internal sealed class ScrcpySession
         var info = new ProcessStartInfo(tools.Scrcpy) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = tools.Tools, RedirectStandardOutput = true, RedirectStandardError = true };
         info.Environment["ADB"] = tools.Adb;
         foreach (var arg in new[] {"--serial", serial, "--window-title=AndroidDesk • scrcpy", "--video-codec=h264", $"--max-size={settings.MaxSize}", $"--max-fps={settings.Fps}", $"--video-bit-rate={settings.Bitrate}M", "--video-buffer=0", "--background-color=101317", "--no-window-aspect-ratio-lock", "--window-width=420", "--window-height=780"}) info.ArgumentList.Add(arg);
+        info.ArgumentList.Add(settings.PhysicalKeyboard ? "--keyboard=uhid" : "--keyboard=sdk");
         if (recording != null && settings.RecordAudio)
         {
             info.ArgumentList.Add("--audio-codec=aac");

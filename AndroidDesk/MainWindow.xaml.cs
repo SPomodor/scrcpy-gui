@@ -6,7 +6,9 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Microsoft.UI.Xaml.Input;
 using Windows.Storage.Streams;
+using Windows.ApplicationModel.DataTransfer;
 using Microsoft.UI.Windowing;
 using Windows.Foundation;
 using Windows.Graphics;
@@ -20,6 +22,11 @@ public sealed partial class MainWindow : Window
     private Preferences _preferences = Preferences.Load();
     private readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly DispatcherTimer _clock = new() { Interval = TimeSpan.FromSeconds(1) };
+    private readonly DispatcherTimer _inputFocus = new() { Interval = TimeSpan.FromMilliseconds(16) };
+    private readonly SemaphoreSlim _clipboardGate = new(1, 1);
+    private ClipboardBridge? _clipboard;
+    private string? _clipboardSerial, _lastClipboardText;
+    private bool _phoneInputActive, _mouseWasDown;
     private readonly SemaphoreSlim _operation = new(1, 1);
     private readonly SemaphoreSlim _commands = new(1, 1);
     private readonly SemaphoreSlim _screenshots = new(1, 1);
@@ -50,7 +57,8 @@ public sealed partial class MainWindow : Window
             e.Cancel = true;
             if (_closing) return;
             _closing = true;
-            _poll.Stop(); _clock.Stop();
+            _poll.Stop(); _clock.Stop(); _inputFocus.Stop();
+            Clipboard.ContentChanged -= ClipboardChanged;
             _settings?.Close(); _devicePicker?.Close(); _notification?.Close();
             await ExecuteAsync(async () => await StopAsync());
             _allowClose = true;
@@ -62,12 +70,44 @@ public sealed partial class MainWindow : Window
             WindowStyle.Apply(this, Root);
             Root.XamlRoot.Changed += (_, _) => PositionScreen();
             _poll.Start();
+            _inputFocus.Start();
             await PollAsync();
         };
         _poll.Tick += async (_, _) => await PollAsync();
+        _inputFocus.Tick += (_, _) =>
+        {
+            var clicked = _frameReady && !_preferences.External && Native.PhoneClicked(_hwnd, _session.Window);
+            if (clicked && !_mouseWasDown) { _phoneInputActive = true; Native.FocusEmbedded(_hwnd, _session.Window); }
+            _mouseWasDown = clicked;
+        };
+        Root.PointerPressed += (_, e) => _phoneInputActive = e.GetCurrentPoint(Root).Position.X < Viewport.ActualWidth;
+        Root.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler((_, e) => ForwardHostKey(e, false)), true);
+        Root.AddHandler(UIElement.KeyUpEvent, new KeyEventHandler((_, e) => ForwardHostKey(e, true)), true);
+        Root.CharacterReceived += (_, e) =>
+        {
+            if (!_preferences.PhysicalKeyboard && _phoneInputActive && _frameReady && !_preferences.External && Native.IsForeground(_hwnd))
+            {
+                Native.PostMessage(_session.Window, 0x0102, (nint)e.Character, 1);
+                e.Handled = true;
+            }
+        };
+        Activated += (_, e) =>
+        {
+            if (e.WindowActivationState != WindowActivationState.Deactivated && _phoneInputActive && _frameReady) Native.FocusEmbedded(_hwnd, _session.Window);
+        };
+        Clipboard.ContentChanged += ClipboardChanged;
         _clock.Tick += (_, _) => RecordTime.Text = $"{DateTime.Now - _recordStarted:mm\\:ss}";
         ObserveSession(_session);
         UpdateControls();
+    }
+    private void ForwardHostKey(KeyRoutedEventArgs e, bool up)
+    {
+        // Cross-process child HWNDs may leave WinUI owning keyboard focus. Route only
+        // host-delivered events, never hook global input or duplicate native SDL events.
+        if (!_phoneInputActive || !_frameReady || _preferences.External || _session.Window == 0 || !Native.IsForeground(_hwnd)) return;
+        Native.FocusEmbedded(_hwnd, _session.Window);
+        Native.ForwardKey(_session.Window, (int)e.Key, e.KeyStatus.ScanCode, e.KeyStatus.IsExtendedKey, e.KeyStatus.WasKeyDown, up);
+        e.Handled = true;
     }
     private void ObserveSession(ScrcpySession session)
     {
@@ -167,6 +207,7 @@ public sealed partial class MainWindow : Window
             EmptyHint.Text = "Чтобы вернуть экран сюда, выключите отдельное окно в настройках ⋯.";
             EmptyState.Visibility = _preferences.External ? Visibility.Visible : Visibility.Collapsed;
             if (recording != null) { _recordStarted = DateTime.Now; RecordTime.Text = "00:00"; _clock.Start(); }
+            _ = EnsureClipboardAsync(serial);
             try
             {
                 var size = Encoding.UTF8.GetString(await _adb.RunAsync(["-s", serial, "shell", "wm", "size"]));
@@ -224,6 +265,8 @@ public sealed partial class MainWindow : Window
         if (recording != null) { _recordStarted = DateTime.Now; RecordTime.Text = "00:00"; _clock.Start(); }
         Log.Write("Display: live renderer handed over without PNG replacement");
         await previous.StopAsync();
+        if (_phoneInputActive && !_preferences.External) Native.FocusEmbedded(_hwnd, replacement.Window);
+        _ = EnsureClipboardAsync(serial);
         if (previousRecording != null) NotifySaved("Запись сохранена", previousRecording);
     }
     private async Task StopAsync()
@@ -242,12 +285,69 @@ public sealed partial class MainWindow : Window
         }
         finally
         {
+            await StopClipboardAsync();
             _serial = null; _clock.Stop();
             FrozenFrame.Visibility = FrozenFrame.Source == null ? Visibility.Collapsed : Visibility.Visible;
             EmptyState.Visibility = FrozenFrame.Source == null ? Visibility.Visible : Visibility.Collapsed;
             EmptyTitle.Text = "Трансляция остановлена";
             EmptyHint.Text = "Подключиться — кнопка справа. Выбрать телефон — значок телефона.";
         }
+    }
+    private async void ClipboardChanged(object? sender, object e)
+    {
+        if (!_closing && _preferences.SharedClipboard && _clipboard != null) await SyncClipboardAsync();
+    }
+    private async Task EnsureClipboardAsync(string serial)
+    {
+        await _clipboardGate.WaitAsync();
+        try
+        {
+            if (_closing || !_session.Running || _serial != serial) return;
+            if (!_preferences.SharedClipboard)
+            {
+                if (_clipboard != null) await _clipboard.DisposeAsync();
+                _clipboard = null; _clipboardSerial = null;
+                return;
+            }
+            if (_clipboardSerial == serial && _clipboard?.Connected == true) return;
+            if (_clipboard != null) await _clipboard.DisposeAsync();
+            _clipboard = new ClipboardBridge(_adb, serial);
+            _clipboardSerial = serial; _lastClipboardText = null;
+            await _clipboard.ConnectAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Write("Clipboard bridge: " + ex.Message);
+            if (!_closing) Notify("Буфер обмена недоступен", ex.Message, error: true);
+        }
+        finally { _clipboardGate.Release(); }
+        await SyncClipboardAsync();
+    }
+    private async Task SyncClipboardAsync()
+    {
+        await _clipboardGate.WaitAsync();
+        try
+        {
+            if (_closing || !_session.Running || _serial != _clipboardSerial || !_preferences.SharedClipboard || _clipboard?.Connected != true) return;
+            var content = Clipboard.GetContent();
+            if (!content.Contains(StandardDataFormats.Text)) return;
+            var text = await content.GetTextAsync();
+            if (text == _lastClipboardText) return;
+            await _clipboard.SetTextAsync(text);
+            _lastClipboardText = text;
+        }
+        catch (Exception ex) { Log.Write("Clipboard sync: " + ex.Message); }
+        finally { _clipboardGate.Release(); }
+    }
+    private async Task StopClipboardAsync()
+    {
+        await _clipboardGate.WaitAsync();
+        try
+        {
+            if (_clipboard != null) await _clipboard.DisposeAsync();
+            _clipboard = null; _clipboardSerial = null; _lastClipboardText = null;
+        }
+        finally { _clipboardGate.Release(); }
     }
     private async Task FreezeFrameAsync(string serial)
     {

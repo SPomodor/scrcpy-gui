@@ -48,6 +48,8 @@ internal sealed class SettingsWindow : Window
     private readonly ToggleSwitch _audio = new() { Header = "Звук в записи", OnContent = "AAC · звук телефона", OffContent = "Без звука" };
     private readonly ToggleSwitch _external = new() { Header = "Отдельное окно scrcpy", OnContent = "Отдельное окно", OffContent = "Экран внутри приложения" };
     private readonly ToggleSwitch _auto = new() { Header = "Автоподключение", OnContent = "Включено", OffContent = "Выключено" };
+    private readonly ToggleSwitch _keyboard = new() { Header = "Физическая клавиатура (UHID)", OnContent = "Включено", OffContent = "Совместимый ввод SDK" };
+    private readonly ToggleSwitch _clipboard = new() { Header = "Общий текстовый буфер", OnContent = "В обе стороны", OffContent = "Только штатная вставка scrcpy" };
     public Func<Preferences, Task<bool>>? ApplyRequested { get; set; }
     public SettingsWindow(Window owner, Preferences preferences, bool recording)
     {
@@ -66,12 +68,15 @@ internal sealed class SettingsWindow : Window
         _audio.IsOn = preferences.RecordAudio;
         _external.IsOn = preferences.External;
         _auto.IsOn = preferences.AutoConnect;
-        foreach (var element in new Control[] { _resolution, _fps, _format, _bitrate, _audio, _external, _auto }) element.IsEnabled = !recording;
+        _keyboard.IsOn = preferences.PhysicalKeyboard; _clipboard.IsOn = preferences.SharedClipboard;
+        foreach (var element in new Control[] { _resolution, _fps, _format, _bitrate, _audio, _external, _auto, _keyboard, _clipboard }) element.IsEnabled = !recording;
         AddField(panel, "Разрешение · длинная сторона", _resolution);
         AddField(panel, "Частота кадров", _fps);
         AddField(panel, "Битрейт, Мбит/с", _bitrate);
         AddField(panel, "Формат записи", _format);
         panel.Children.Add(_audio); panel.Children.Add(_external); panel.Children.Add(_auto);
+        panel.Children.Add(_keyboard); panel.Children.Add(_clipboard);
+        panel.Children.Add(new TextBlock { Text = "Щёлкните по экрану телефона перед печатью. Для русского ввода выберите русскую раскладку физической клавиатуры в Android (Alt+K). Ctrl+V вставляет текст с ПК.", FontSize = 12, Opacity = 0.65, TextWrapping = TextWrapping.Wrap });
         panel.Children.Add(new TextBlock { Text = "Применение настроек и переключение записи ненадолго перезапускают трансляцию. Захват звука требует Android 11+; на Android 11 разблокируйте телефон.", FontSize = 12, Opacity = 0.65, TextWrapping = TextWrapping.Wrap });
         var apply = new Button { Content = "Применить", HorizontalAlignment = HorizontalAlignment.Stretch, IsEnabled = !recording };
         apply.Click += async (_, _) =>
@@ -84,6 +89,7 @@ internal sealed class SettingsWindow : Window
                 preferences.Bitrate = double.IsFinite(_bitrate.Value) ? (int)Math.Clamp(Math.Round(_bitrate.Value), 1, 64) : 8;
                 preferences.RecordingFormat = (string)((ComboBoxItem)_format.SelectedItem).Tag;
                 preferences.RecordAudio = _audio.IsOn; preferences.External = _external.IsOn; preferences.AutoConnect = _auto.IsOn;
+                preferences.PhysicalKeyboard = _keyboard.IsOn; preferences.SharedClipboard = _clipboard.IsOn;
                 if (ApplyRequested != null && await ApplyRequested(preferences)) Close();
             }
             finally { apply.IsEnabled = !recording; }
@@ -174,7 +180,7 @@ internal sealed class NotificationWindow : Window
         var position = owner.AppWindow.Position;
         var size = owner.AppWindow.Size;
         var area = DisplayArea.GetFromWindowId(owner.AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
-        AppWindow.Move(new PointInt32(Math.Clamp(position.X + (size.Width - 44 - width) / 2, area.X, Math.Max(area.X, area.X + area.Width - width)), Math.Clamp(position.Y + size.Height - height - 24, area.Y, Math.Max(area.Y, area.Y + area.Height - height))));
+        AppWindow.Move(new PointInt32(Math.Clamp(position.X + (size.Width - 44 - width) / 2, area.X, Math.Max(area.X, area.X + area.Width - width)), Math.Clamp(position.Y + 44, area.Y, Math.Max(area.Y, area.Y + area.Height - height))));
         var layout = new Grid { ColumnSpacing = 10, Padding = new Thickness(14, 8, 12, 8) };
         layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(20) });
         layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });

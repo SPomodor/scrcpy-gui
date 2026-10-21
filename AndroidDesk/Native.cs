@@ -24,13 +24,13 @@ internal static class Native
         SetStyle(window, -20, (nint)(((long)GetStyle(window, -20) | 0x08000080L) & ~0x00060300L));
         uint policy = 1; // DWMNCRP_DISABLED: no system frame around the notification.
         DwmSetWindowAttribute(window, 2, ref policy, 4);
-        uint border = 0; // Black even if a compositor falls back to drawing an outline.
+        uint border = 0x002A2523; // Match the notification surface, including compositor fallback.
         DwmSetWindowAttribute(window, 34, ref border, 4);
-        uint corner = 3; // Small corners on Windows 11.
+        uint corner = 1; // Our region owns the corners; avoid a second DWM outline.
         DwmSetWindowAttribute(window, 33, ref corner, 4);
         GetWindowRect(window, out var bounds);
         var radius = Math.Max(8, (int)Math.Round(12 * DpiScale(window)));
-        var region = CreateRoundRectRgn(1, 1, bounds.Right - bounds.Left - 1, bounds.Bottom - bounds.Top - 1, radius, radius);
+        var region = CreateRoundRectRgn(3, 3, bounds.Right - bounds.Left - 3, bounds.Bottom - bounds.Top - 3, radius, radius);
         if (region != 0 && SetWindowRgn(window, region, true) == 0) DeleteObject(region);
         SetWindowPos(window, 0, 0, 0, 0, 0, 0x0010 | 0x0001 | 0x0002 | 0x0004 | 0x0020);
     }
@@ -42,6 +42,38 @@ internal static class Native
     [DllImport("user32.dll")] private static extern int SetWindowRgn(nint window, nint region, bool redraw);
     [DllImport("gdi32.dll")] private static extern bool DeleteObject(nint value);
     internal static double DpiScale(nint window) => GetDpiForWindow(window) / 96d;
+    [StructLayout(LayoutKind.Sequential)] private struct Point { public int X, Y; }
+    [DllImport("user32.dll")] private static extern bool GetCursorPos(out Point point);
+    [DllImport("user32.dll")] private static extern nint WindowFromPoint(Point point);
+    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
+    [DllImport("user32.dll")] private static extern nint GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern nint GetAncestor(nint window, uint flags);
+    [DllImport("user32.dll")] private static extern nint SetFocus(nint window);
+    [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint from, uint to, bool attach);
+    [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+    internal static bool PhoneClicked(nint owner, nint child)
+    {
+        if (!IsForeground(owner) || child == 0 || (GetAsyncKeyState(1) & 0x8000) == 0) return false;
+        GetWindowRect(child, out var bounds);
+        return GetCursorPos(out var point) && point.X >= bounds.Left && point.X < bounds.Right && point.Y >= bounds.Top && point.Y < bounds.Bottom;
+    }
+    internal static bool IsForeground(nint owner) => GetAncestor(GetForegroundWindow(), 2) == owner;
+    internal static void FocusEmbedded(nint owner, nint child)
+    {
+        if (child == 0 || !IsForeground(owner)) return;
+        var target = GetWindowThreadProcessId(child, out _);
+        var current = GetCurrentThreadId();
+        if (target == 0) return;
+        var attached = target != current && AttachThreadInput(current, target, true);
+        try { SetFocus(child); }
+        finally { if (attached) AttachThreadInput(current, target, false); }
+        PostMessage(child, 0x0007, 0, 0); // Keep SDL's keyboard-focus state in sync with the embedded HWND.
+    }
+    internal static void ForwardKey(nint child, int key, uint scanCode, bool extended, bool repeat, bool up)
+    {
+        long flags = 1 | ((long)scanCode << 16) | (extended ? 1L << 24 : 0) | (repeat || up ? 1L << 30 : 0) | (up ? 1L << 31 : 0);
+        PostMessage(child, up ? 0x0101u : 0x0100u, key, (nint)flags);
+    }
     internal static (int Width, int Height) NonClientSize(nint window)
     {
         GetWindowRect(window, out var outer);

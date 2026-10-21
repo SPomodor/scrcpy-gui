@@ -34,7 +34,9 @@
           <Button Style="{StaticResource QuickButton}" AutomationProperties.Name="Тише" ToolTipService.ToolTip="Тише" Tag="25" Click="KeyClick">
             <Viewbox Width="16" Height="16"><Path Stroke="{ThemeResource TextFillColorPrimaryBrush}" StrokeThickness="1.2" StrokeLineJoin="Round" Data="M 2,6 L 5,6 L 9,2 L 9,14 L 5,10 L 2,10 Z M 12,5 C 14,6.5 14,9.5 12,11"/></Viewbox>
           </Button>
-          <Button Style="{StaticResource QuickButton}" Content="&#xE708;" AutomationProperties.Name="Питание" ToolTipService.ToolTip="Блокировка / пробуждение" Tag="26" Click="KeyClick"/>
+          <Button Style="{StaticResource QuickButton}" AutomationProperties.Name="Питание" ToolTipService.ToolTip="Блокировка / пробуждение" Tag="26" Click="KeyClick">
+            <Viewbox Width="16" Height="16"><Path Stroke="{ThemeResource TextFillColorPrimaryBrush}" StrokeThickness="1.4" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M 8,1 L 8,8 M 4,3 A 6,6 0 1 0 12,3"/></Viewbox>
+          </Button>
           <Border Height="1" Margin="5,5" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
           <Button Style="{StaticResource QuickButton}" Content="&#xE722;" AutomationProperties.Name="Скриншот" ToolTipService.ToolTip="Скриншот" Click="ScreenshotClick"/>
         </StackPanel>
