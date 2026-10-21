@@ -9,6 +9,7 @@
     </Grid.Resources>
     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="44"/></Grid.ColumnDefinitions>
     <Grid x:Name="Viewport" SizeChanged="ViewportChanged">
+      <Image x:Name="FrozenFrame" AutomationProperties.Name="Последний кадр" Stretch="Uniform" Visibility="Collapsed" IsHitTestVisible="False"/>
       <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="14" MaxWidth="290" Margin="20">
         <FontIcon Glyph="&#xE8EA;" FontSize="40" Foreground="#77B8FA"/>
         <TextBlock x:Name="EmptyTitle" Text="Подключите телефон" FontSize="20" Foreground="White" TextAlignment="Center" TextWrapping="Wrap"/>
@@ -18,16 +19,21 @@
     <Grid Grid.Column="1" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" Padding="5,4">
       <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
       <StackPanel Spacing="2">
-        <Button x:Name="DeviceButton" Style="{StaticResource QuickButton}" Content="&#xE8EA;" AutomationProperties.Name="Выбрать телефон" ToolTipService.ToolTip="Выбрать телефон" Click="DeviceClick"/>
+        <Button x:Name="SettingsButton" Style="{StaticResource QuickButton}" Content="&#xE712;" AutomationProperties.Name="Настройки" ToolTipService.ToolTip="Настройки" Click="SettingsClick"/>
+        <Button x:Name="DeviceButton" Style="{StaticResource QuickButton}" Content="&#xE772;" AutomationProperties.Name="Выбор устройства" ToolTipService.ToolTip="Выбор устройства" Click="DeviceClick"/>
         <Button x:Name="ConnectButton" Style="{StaticResource QuickButton}" Content="&#xE8D4;" AutomationProperties.Name="Подключить или отключить" ToolTipService.ToolTip="Подключить / отключить" Click="ConnectClick"/>
         <Border Height="1" Margin="5,5" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
         <StackPanel x:Name="PhoneControls" Spacing="2">
           <Button Style="{StaticResource QuickButton}" Content="&#xE72B;" AutomationProperties.Name="Назад" ToolTipService.ToolTip="Назад" Tag="4" Click="KeyClick"/>
           <Button Style="{StaticResource QuickButton}" Content="&#xE80F;" AutomationProperties.Name="Домой" ToolTipService.ToolTip="Домой" Tag="3" Click="KeyClick"/>
-          <Button Style="{StaticResource QuickButton}" Content="&#xE7F4;" AutomationProperties.Name="Недавние приложения" ToolTipService.ToolTip="Недавние приложения" Tag="187" Click="KeyClick"/>
+          <Button Style="{StaticResource QuickButton}" AutomationProperties.Name="Недавние приложения" ToolTipService.ToolTip="Недавние приложения" Tag="187" Click="KeyClick">
+            <StackPanel Width="16" Spacing="4" VerticalAlignment="Center"><Border Height="1" Background="{ThemeResource TextFillColorPrimaryBrush}"/><Border Height="1" Background="{ThemeResource TextFillColorPrimaryBrush}"/><Border Height="1" Background="{ThemeResource TextFillColorPrimaryBrush}"/></StackPanel>
+          </Button>
           <Border Height="1" Margin="5,5" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
           <Button Style="{StaticResource QuickButton}" Content="&#xE995;" AutomationProperties.Name="Громче" ToolTipService.ToolTip="Громче" Tag="24" Click="KeyClick"/>
-          <Button Style="{StaticResource QuickButton}" Content="&#xE994;" AutomationProperties.Name="Тише" ToolTipService.ToolTip="Тише" Tag="25" Click="KeyClick"/>
+          <Button Style="{StaticResource QuickButton}" AutomationProperties.Name="Тише" ToolTipService.ToolTip="Тише" Tag="25" Click="KeyClick">
+            <Viewbox Width="16" Height="16"><Path Stroke="{ThemeResource TextFillColorPrimaryBrush}" StrokeThickness="1.2" StrokeLineJoin="Round" Data="M 2,6 L 5,6 L 9,2 L 9,14 L 5,10 L 2,10 Z M 12,5 C 14,6.5 14,9.5 12,11"/></Viewbox>
+          </Button>
           <Button Style="{StaticResource QuickButton}" Content="&#xE708;" AutomationProperties.Name="Питание" ToolTipService.ToolTip="Блокировка / пробуждение" Tag="26" Click="KeyClick"/>
           <Border Height="1" Margin="5,5" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
           <Button Style="{StaticResource QuickButton}" Content="&#xE722;" AutomationProperties.Name="Скриншот" ToolTipService.ToolTip="Скриншот" Click="ScreenshotClick"/>
@@ -36,9 +42,7 @@
         <TextBlock x:Name="RecordTime" Visibility="Collapsed" FontSize="9" Foreground="#F06C75" HorizontalAlignment="Center"/>
       </StackPanel>
       <StackPanel Grid.Row="2" Spacing="2">
-        <ProgressRing x:Name="BusyRing" Width="16" Height="16" IsActive="False" Visibility="Collapsed" Margin="0,4"/>
         <Button Style="{StaticResource QuickButton}" Content="&#xE8B9;" AutomationProperties.Name="По размеру телефона" ToolTipService.ToolTip="Подогнать окно по телефону" Click="FitClick"/>
-        <Button x:Name="SettingsButton" Style="{StaticResource QuickButton}" Content="&#xE712;" AutomationProperties.Name="Настройки" ToolTipService.ToolTip="Настройки" Click="SettingsClick"/>
       </StackPanel>
     </Grid>
   </Grid>

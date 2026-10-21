@@ -102,10 +102,15 @@ internal sealed class AdbService
     }
     public async Task<IReadOnlyList<Device>> DevicesAsync() => ParseDevices(Encoding.UTF8.GetString(await RunAsync(["devices", "-l"])));
     public Task<byte[]> KeyAsync(string serial, int key) => RunAsync(["-s", serial, "shell", "input", "keyevent", key.ToString()]);
+    public async Task<byte[]> CaptureFrameAsync(string serial)
+    {
+        var data = await RunAsync(["-s", serial, "exec-out", "screencap", "-p"], 8);
+        if (data.Length < 8 || !data.Take(8).SequenceEqual(new byte[] {137,80,78,71,13,10,26,10})) throw new IOException("ADB не вернул PNG-изображение.");
+        return data;
+    }
     public async Task<string> ScreenshotAsync(string serial)
     {
-        var data = await RunAsync(["-s", serial, "exec-out", "screencap", "-p"], 20);
-        if (data.Length < 8 || !data.Take(8).SequenceEqual(new byte[] {137,80,78,71,13,10,26,10})) throw new IOException("ADB не вернул PNG-изображение.");
+        var data = await CaptureFrameAsync(serial);
         var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "AndroidDesk");
         Directory.CreateDirectory(folder);
         var path = Path.Combine(folder, $"Screenshot_{DateTime.Now:yyyy-MM-dd_HH-mm-ss-fff}.png");
@@ -121,7 +126,7 @@ internal sealed class ScrcpySession
     public bool Running => _process is { HasExited: false };
     public string? RecordingPath { get; private set; }
     public event Action? Exited;
-    public async Task StartAsync(AdbService tools, string serial, Preferences settings, string? recording)
+    public async Task StartAsync(AdbService tools, string serial, Preferences settings, string? recording, Action<nint>? prepareWindow = null)
     {
         if (_process != null) throw new InvalidOperationException("Сессия уже запущена.");
         var info = new ProcessStartInfo(tools.Scrcpy) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = tools.Tools, RedirectStandardOutput = true, RedirectStandardError = true };
@@ -139,8 +144,15 @@ internal sealed class ScrcpySession
         var process = Process.Start(info) ?? throw new IOException("Не удалось запустить scrcpy.");
         _process = process;
         RecordingPath = recording;
-        process.OutputDataReceived += (_, e) => { if (e.Data != null) Log.Write("scrcpy: " + e.Data); };
-        process.ErrorDataReceived += (_, e) => { if (e.Data != null) Log.Write("scrcpy: " + e.Data); };
+        var firstFrame = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void ReadLine(object sender, DataReceivedEventArgs e)
+        {
+            if (e.Data == null) return;
+            Log.Write("scrcpy: " + e.Data);
+            if (e.Data.Contains("Texture", StringComparison.Ordinal) && e.Data.Contains('x')) firstFrame.TrySetResult();
+        }
+        process.OutputDataReceived += ReadLine;
+        process.ErrorDataReceived += ReadLine;
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
         process.EnableRaisingEvents = true;
@@ -150,11 +162,21 @@ internal sealed class ScrcpySession
             for (var attempt = 0; attempt < 200; attempt++)
             {
                 if (process.HasExited) throw new IOException($"scrcpy завершился с кодом {process.ExitCode}. Подробности: {Path.Combine(Log.Folder, "app.log")}");
-                Window = Native.FindWindow(process.Id);
-                if (Window != 0) return;
+                if (Window == 0)
+                {
+                    Window = Native.FindWindow(process.Id);
+                    if (Window != 0) prepareWindow?.Invoke(Window);
+                }
+                if (Window != 0 && firstFrame.Task.IsCompleted)
+                {
+                    // Give SDL one render pass before exposing its replacement window.
+                    await Task.Delay(100);
+                    if (process.HasExited) throw new IOException("scrcpy завершился во время запуска видео.");
+                    return;
+                }
                 await Task.Delay(100);
             }
-            throw new TimeoutException("scrcpy не создал окно за 20 секунд. Проверьте разблокировку телефона и разрешение отладки.");
+            throw new TimeoutException("scrcpy не подготовил видео за 20 секунд. Проверьте телефон и разрешение отладки.");
         }
         catch { await StopAsync(); throw; }
     }

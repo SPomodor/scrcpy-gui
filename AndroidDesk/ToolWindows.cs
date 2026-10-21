@@ -116,18 +116,18 @@ internal sealed class SettingsWindow : Window
 
 internal sealed class DeviceWindow : Window
 {
-    private readonly ListView _list = new() { SelectionMode = ListViewSelectionMode.Single, DisplayMemberPath = "PickerLabel", MinHeight = 100 };
+    private readonly ListView _list = new() { SelectionMode = ListViewSelectionMode.Single, DisplayMemberPath = "Label", MinHeight = 100 };
     private readonly TextBlock _hint = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.65 };
     private readonly Button _connect = new() { Content = "Подключить", HorizontalAlignment = HorizontalAlignment.Stretch };
     private string _signature = "";
     public Func<string, Task>? DeviceRequested { get; set; }
     public DeviceWindow(Window owner)
     {
-        Title = "Выбор телефона";
+        Title = "Выбор устройства";
         SystemBackdrop = new MicaBackdrop();
-        WindowStyle.Own(this, owner, 440, 400);
+        WindowStyle.Own(this, owner, 360, 300);
         var panel = new StackPanel { Spacing = 18, Padding = new Thickness(24) };
-        panel.Children.Add(new TextBlock { Text = "Телефоны", FontSize = 26, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        panel.Children.Add(new TextBlock { Text = "Устройства", FontSize = 22, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         panel.Children.Add(_hint); panel.Children.Add(_list); panel.Children.Add(_connect);
         _list.SelectionChanged += (_, _) => _connect.IsEnabled = _list.SelectedItem != null;
         _connect.Click += async (_, _) =>
@@ -151,7 +151,7 @@ internal sealed class DeviceWindow : Window
             _list.ItemsSource = devices;
             _list.SelectedItem = devices.FirstOrDefault(x => x.Serial == selected) ?? devices.FirstOrDefault();
         }
-        _hint.Text = devices.Count == 0 ? "Устройства не найдены. Подключите телефон и разрешите отладку. Список обновляется автоматически." : "Выберите устройство. Текущая трансляция и запись будут остановлены при переключении.";
+        _hint.Text = devices.Count == 0 ? "Устройства не найдены. Подключите телефон и разрешите отладку. Список обновляется автоматически." : "Выберите устройство. Подключённые по USB и Wi-Fi.";
         _connect.IsEnabled = _list.SelectedItem != null;
     }
 }
@@ -162,18 +162,34 @@ internal sealed class NotificationWindow : Window
     public NotificationWindow(Window owner, string title, string message, string? path, bool error)
     {
         Title = "Уведомление";
-        WindowStyle.Own(this, owner, 350, 132);
-        if (AppWindow.Presenter is OverlappedPresenter presenter) { presenter.SetBorderAndTitleBar(false, false); presenter.IsResizable = false; }
+        var width = error ? 330 : 276;
+        var height = error ? 94 : 54;
+        WindowStyle.Own(this, owner, width, height);
+        if (AppWindow.Presenter is OverlappedPresenter presenter)
+        {
+            presenter.SetBorderAndTitleBar(false, false);
+            presenter.IsResizable = false;
+        }
+        Native.MakeTransient(WinRT.Interop.WindowNative.GetWindowHandle(this));
         var position = owner.AppWindow.Position;
         var size = owner.AppWindow.Size;
         var area = DisplayArea.GetFromWindowId(owner.AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
-        AppWindow.Move(new PointInt32(Math.Clamp(position.X + (size.Width - 350) / 2, area.X, Math.Max(area.X, area.X + area.Width - 350)), Math.Clamp(position.Y + size.Height - 160, area.Y, Math.Max(area.Y, area.Y + area.Height - 132))));
-        var panel = new StackPanel { Spacing = 6, Padding = new Thickness(16, 10, 16, 10) };
-        panel.Children.Add(new TextBlock { Text = title, FontSize = 15, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(error ? Microsoft.UI.Colors.Salmon : Microsoft.UI.Colors.LightGreen) });
-        panel.Children.Add(new TextBlock { Text = message, FontSize = 12, TextWrapping = TextWrapping.Wrap, MaxLines = 2, TextTrimming = TextTrimming.CharacterEllipsis, Foreground = new SolidColorBrush(Microsoft.UI.Colors.White) });
+        AppWindow.Move(new PointInt32(Math.Clamp(position.X + (size.Width - 44 - width) / 2, area.X, Math.Max(area.X, area.X + area.Width - width)), Math.Clamp(position.Y + size.Height - height - 24, area.Y, Math.Max(area.Y, area.Y + area.Height - height))));
+        var layout = new Grid { ColumnSpacing = 10, Padding = new Thickness(14, 8, 12, 8) };
+        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(20) });
+        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var icon = new FontIcon { Glyph = error ? "\uE783" : "\uE73E", FontSize = 14, Foreground = new SolidColorBrush(error ? Windows.UI.Color.FromArgb(255, 247, 155, 150) : Windows.UI.Color.FromArgb(255, 141, 216, 184)) };
+        layout.Children.Add(icon);
+        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 3 };
+        text.Children.Add(new TextBlock { Text = title, FontSize = 13, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.White), TextTrimming = TextTrimming.CharacterEllipsis });
+        if (error) text.Children.Add(new TextBlock { Text = message, FontSize = 11, MaxLines = 3, TextWrapping = TextWrapping.Wrap, TextTrimming = TextTrimming.CharacterEllipsis, Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 190, 193, 200)) });
+        Grid.SetColumn(text, 1); layout.Children.Add(text);
         if (path != null)
         {
-            var open = new Button { Content = "Показать файл", Padding = new Thickness(10, 3, 10, 3), FontSize = 12 };
+            var open = new Button { Content = new FontIcon { Glyph = "\uE8A7", FontSize = 13 }, Padding = new Thickness(4), MinWidth = 24, MinHeight = 24, BorderThickness = new Thickness(0), Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), VerticalAlignment = VerticalAlignment.Center };
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(open, "Показать файл");
+            ToolTipService.SetToolTip(open, "Показать файл · " + message);
             open.Click += (_, _) =>
             {
                 try
@@ -185,10 +201,10 @@ internal sealed class NotificationWindow : Window
                 catch (Exception ex) { Log.Write(ex.ToString()); }
                 Close();
             };
-            panel.Children.Add(open);
+            Grid.SetColumn(open, 2); layout.Children.Add(open);
         }
-        Content = new Border { Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 38, 42, 48)), BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 65, 73, 85)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Child = panel };
-        _timer.Interval = TimeSpan.FromSeconds(error ? 8 : 4);
+        Content = new Border { Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 35, 37, 42)), CornerRadius = new CornerRadius(12), Child = layout };
+        _timer.Interval = TimeSpan.FromSeconds(error ? 7 : 3);
         _timer.Tick += (_, _) => Close();
         Closed += (_, _) => _timer.Stop();
     }

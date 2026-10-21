@@ -17,6 +17,15 @@ internal static class Native
     [DllImport("user32.dll")] internal static extern bool ShowWindow(nint window, int command);
     [DllImport("user32.dll")] internal static extern bool PostMessage(nint window, uint message, nint wParam, nint lParam);
     internal static void Own(nint window, nint owner) => SetStyle(window, -8, owner);
+    [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(nint window, uint attribute, ref uint value, uint size);
+    internal static void MakeTransient(nint window)
+    {
+        SetStyle(window, -20, (nint)(((long)GetStyle(window, -20) | 0x08000080L) & ~0x00040000L));
+        uint border = 0xFFFFFFFE;
+        DwmSetWindowAttribute(window, 34, ref border, 4);
+        uint corner = 2;
+        DwmSetWindowAttribute(window, 33, ref corner, 4);
+    }
     internal static nint FindWindow(int process)
     {
         nint result = 0;

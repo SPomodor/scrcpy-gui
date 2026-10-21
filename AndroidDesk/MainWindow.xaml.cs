@@ -5,6 +5,8 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
+using Windows.Storage.Streams;
 using Microsoft.UI.Windowing;
 using Windows.Foundation;
 using Windows.Graphics;
@@ -19,8 +21,11 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly DispatcherTimer _clock = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly SemaphoreSlim _operation = new(1, 1);
+    private readonly SemaphoreSlim _commands = new(1, 1);
+    private readonly SemaphoreSlim _screenshots = new(1, 1);
     private readonly nint _hwnd;
     private bool _polling, _busy, _closing, _allowClose, _userStopped;
+    private bool _frameReady;
     private string? _serial, _selectedSerial, _failedSerial;
     private string? _fittedSerial;
     private IReadOnlyList<Device> _devices = [];
@@ -136,15 +141,24 @@ public sealed partial class MainWindow : Window
     {
         _serial = serial;
         _selectedSerial = serial;
+        _frameReady = false;
         EmptyTitle.Text = "Подключаем экран…";
         try
         {
-            await _session.StartAsync(_adb, serial, _preferences, recording);
+            await _session.StartAsync(_adb, serial, _preferences, recording, window =>
+            {
+                if (_preferences.External) return;
+                Native.Embed(window, _hwnd);
+                var scale = Root.XamlRoot?.RasterizationScale ?? 1;
+                Native.SetWindowPos(window, 0, -32000, 0, Math.Max(1, (int)(Viewport.ActualWidth * scale)), Math.Max(1, (int)(Viewport.ActualHeight * scale)), 0x0010 | 0x0040 | 0x0020);
+            });
+            _frameReady = true;
             if (!_preferences.External)
             {
-                Native.Embed(_session.Window, _hwnd);
                 PositionScreen();
             }
+            FrozenFrame.Visibility = Visibility.Collapsed;
+            Log.Write("Display: replacement frame ready");
             EmptyTitle.Text = "Экран в отдельном окне";
             EmptyHint.Text = "Чтобы вернуть экран сюда, выключите отдельное окно в настройках ⋯.";
             EmptyState.Visibility = _preferences.External ? Visibility.Visible : Visibility.Collapsed;
@@ -174,6 +188,12 @@ public sealed partial class MainWindow : Window
     private async Task StopAsync()
     {
         var recording = _session.RecordingPath;
+        if (!_closing && _session.Running && _serial != null && Native.GetParent(_session.Window) == _hwnd)
+        {
+            try { await FreezeFrameAsync(_serial); }
+            catch (Exception ex) { Log.Write("Frame hold: " + ex.Message); }
+        }
+        _frameReady = false;
         try
         {
             await _session.StopAsync();
@@ -182,10 +202,28 @@ public sealed partial class MainWindow : Window
         finally
         {
             _serial = null; _clock.Stop();
-            EmptyState.Visibility = Visibility.Visible;
+            FrozenFrame.Visibility = FrozenFrame.Source == null ? Visibility.Collapsed : Visibility.Visible;
+            EmptyState.Visibility = FrozenFrame.Source == null ? Visibility.Visible : Visibility.Collapsed;
             EmptyTitle.Text = "Трансляция остановлена";
             EmptyHint.Text = "Подключиться — кнопка справа. Выбрать телефон — значок телефона.";
         }
+    }
+    private async Task FreezeFrameAsync(string serial)
+    {
+        var bytes = await _adb.CaptureFrameAsync(serial);
+        using var stream = new InMemoryRandomAccessStream();
+        using (var writer = new DataWriter(stream.GetOutputStreamAt(0)))
+        {
+            writer.WriteBytes(bytes);
+            await writer.StoreAsync();
+        }
+        stream.Seek(0);
+        var bitmap = new BitmapImage();
+        await bitmap.SetSourceAsync(stream);
+        FrozenFrame.Source = bitmap;
+        FrozenFrame.Visibility = Visibility.Visible;
+        EmptyState.Visibility = Visibility.Collapsed;
+        Log.Write("Display: holding frame");
     }
     private void FitToPhone()
     {
@@ -197,27 +235,25 @@ public sealed partial class MainWindow : Window
     }
     private void PositionScreen()
     {
-        if (_session.Window == 0 || Native.GetParent(_session.Window) != _hwnd || Root.XamlRoot == null) return;
+        if (!_frameReady || _session.Window == 0 || Native.GetParent(_session.Window) != _hwnd || Root.XamlRoot == null) return;
         var point = Viewport.TransformToVisual(Root).TransformPoint(new Point());
         var scale = Root.XamlRoot.RasterizationScale;
         Native.SetWindowPos(_session.Window, 0, (int)Math.Round(point.X * scale), (int)Math.Round(point.Y * scale), Math.Max(1, (int)Math.Round(Viewport.ActualWidth * scale)), Math.Max(1, (int)Math.Round(Viewport.ActualHeight * scale)), 0x0010 | 0x0040 | 0x0020);
     }
     private void UpdateControls()
     {
-        BusyRing.IsActive = _busy;
-        BusyRing.Visibility = _busy ? Visibility.Visible : Visibility.Collapsed;
         ConnectButton.IsEnabled = !_busy && (_session.Running || _selectedSerial != null);
         ToolTipService.SetToolTip(ConnectButton, _session.Running ? "Отключить" : "Подключить");
-        foreach (var button in PhoneControls.Children.OfType<Button>()) button.IsEnabled = !_busy && _session.Running;
+        foreach (var button in PhoneControls.Children.OfType<Button>()) button.IsEnabled = _devices.Any(x => x.Serial == (_serial ?? _selectedSerial));
         RecordButton.IsEnabled = !_busy && _session.Running;
         var recording = _session.RecordingPath != null;
         RecordButton.Content = recording ? "\uE71A" : "\uE7C8";
         AutomationProperties.SetName(RecordButton, recording ? "Остановить запись" : "Начать запись");
         ToolTipService.SetToolTip(RecordButton, recording ? "Остановить запись" : $"Запись {_preferences.RecordingFormat.ToUpperInvariant()}" + (_preferences.RecordAudio ? " со звуком" : " без звука"));
         RecordTime.Visibility = recording ? Visibility.Visible : Visibility.Collapsed;
-        DeviceButton.IsEnabled = !_busy;
-        SettingsButton.IsEnabled = !_busy;
-        ToolTipService.SetToolTip(DeviceButton, "Выбрать телефон" + (_serial == null ? "" : " · " + _serial));
+        DeviceButton.IsEnabled = !_closing;
+        SettingsButton.IsEnabled = !_closing;
+        ToolTipService.SetToolTip(DeviceButton, "Выбор устройства" + (_serial == null ? "" : " · " + _serial));
     }
     private void NotifySaved(string title, string path) => Notify(title, Path.GetFileName(path), path);
     private void Notify(string title, string message, string? path = null, bool error = false)
@@ -255,14 +291,23 @@ public sealed partial class MainWindow : Window
             throw new IOException("Не удалось начать запись. Трансляция восстановлена. Если Android не поддерживает захват звука, выключите звук записи в настройках. Подробности — в локальном журнале.");
         }
     });
-    private async void KeyClick(object sender, RoutedEventArgs e) => await ExecuteAsync(async () =>
+    private async void KeyClick(object sender, RoutedEventArgs e)
     {
-        if (_serial != null) await _adb.KeyAsync(_serial, int.Parse((string)((Button)sender).Tag));
-    });
-    private async void ScreenshotClick(object sender, RoutedEventArgs e) => await ExecuteAsync(async () =>
+        var serial = _serial ?? _selectedSerial;
+        if (serial == null || _closing) return;
+        await _commands.WaitAsync();
+        try { if (!_closing) await _adb.KeyAsync(serial, int.Parse((string)((Button)sender).Tag)); }
+        catch (Exception ex) { Log.Write(ex.ToString()); Notify("Команда не выполнена", ex.Message, error: true); }
+        finally { _commands.Release(); }
+    }
+    private async void ScreenshotClick(object sender, RoutedEventArgs e)
     {
-        if (_serial != null) NotifySaved("Скриншот сохранён", await _adb.ScreenshotAsync(_serial));
-    });
+        var serial = _serial ?? _selectedSerial;
+        if (serial == null || _closing || !await _screenshots.WaitAsync(0)) return;
+        try { NotifySaved("Скриншот сохранён", await _adb.ScreenshotAsync(serial)); }
+        catch (Exception ex) { Log.Write(ex.ToString()); Notify("Скриншот не сохранён", ex.Message, error: true); }
+        finally { _screenshots.Release(); }
+    }
     private void ViewportChanged(object sender, SizeChangedEventArgs e) => PositionScreen();
     private void FitClick(object sender, RoutedEventArgs e) => FitToPhone();
     private void SettingsClick(object sender, RoutedEventArgs e)
