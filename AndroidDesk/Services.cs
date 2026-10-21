@@ -1,0 +1,173 @@
+using System.Diagnostics;
+using System.Text;
+using System.Text.Json;
+
+namespace AndroidDesk;
+
+internal static class Log
+{
+    public static readonly string Folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AndroidDesk");
+    private static readonly object Gate = new();
+    public static void Write(string value)
+    {
+        lock (Gate)
+        {
+            try { Directory.CreateDirectory(Folder); File.AppendAllText(Path.Combine(Folder, "app.log"), $"{DateTime.Now:O} {value}\n"); }
+            catch { /* Logging must not terminate a session. */ }
+        }
+    }
+}
+
+internal sealed class Preferences
+{
+    public int MaxSize { get; set; } = 1920;
+    public int Fps { get; set; } = 60;
+    public int Bitrate { get; set; } = 8;
+    public bool External { get; set; }
+    public bool AutoConnect { get; set; } = true;
+    public static Preferences Load()
+    {
+        try { return JsonSerializer.Deserialize<Preferences>(File.ReadAllText(Path.Combine(Log.Folder, "settings.json"))) ?? new(); }
+        catch { return new(); }
+    }
+    public void Save()
+    {
+        Directory.CreateDirectory(Log.Folder);
+        File.WriteAllText(Path.Combine(Log.Folder, "settings.json"), JsonSerializer.Serialize(this));
+    }
+}
+
+internal sealed record Device(string Serial, string State, string Model)
+{
+    public string Label => $"{Model} · {(Serial.Contains(':') ? "Wi-Fi" : "USB")}";
+}
+
+internal sealed class AdbService
+{
+    public string Tools { get; }
+    public string Adb => Path.Combine(Tools, "adb.exe");
+    public string Scrcpy => Path.Combine(Tools, "scrcpy.exe");
+    public AdbService()
+    {
+        Tools = Path.Combine(AppContext.BaseDirectory, "scrcpy");
+        if (!File.Exists(Scrcpy))
+        {
+            var current = new DirectoryInfo(AppContext.BaseDirectory);
+            while (current != null)
+            {
+                var candidate = Path.Combine(current.FullName, "scrcpy");
+                if (File.Exists(Path.Combine(candidate, "scrcpy.exe"))) { Tools = candidate; break; }
+                current = current.Parent;
+            }
+        }
+    }
+    public async Task<byte[]> RunAsync(IEnumerable<string> args, int timeoutSeconds = 10)
+    {
+        var start = new ProcessStartInfo(Adb) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = Tools };
+        foreach (var arg in args) start.ArgumentList.Add(arg);
+        using var process = Process.Start(start) ?? throw new IOException("Не удалось запустить ADB.");
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
+        using var output = new MemoryStream();
+        var errors = process.StandardError.ReadToEndAsync(timeout.Token);
+        var copy = process.StandardOutput.BaseStream.CopyToAsync(output, timeout.Token);
+        try
+        {
+            await Task.WhenAll(process.WaitForExitAsync(timeout.Token), copy);
+            var error = await errors;
+            if (process.ExitCode != 0) throw new IOException(error.Trim());
+            return output.ToArray();
+        }
+        catch
+        {
+            if (!process.HasExited) process.Kill(true);
+            try { await Task.WhenAll(copy, errors); } catch { }
+            throw;
+        }
+    }
+    public static IReadOnlyList<Device> ParseDevices(string output)
+    {
+        var result = new List<Device>();
+        foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 2 || parts[0] == "List" || parts[0].StartsWith('*')) continue;
+            var model = parts.FirstOrDefault(x => x.StartsWith("model:"))?[6..].Replace('_', ' ') ?? parts[0];
+            result.Add(new(parts[0], parts[1], model));
+        }
+        return result;
+    }
+    public async Task<IReadOnlyList<Device>> DevicesAsync() => ParseDevices(Encoding.UTF8.GetString(await RunAsync(["devices", "-l"])));
+    public Task<byte[]> KeyAsync(string serial, int key) => RunAsync(["-s", serial, "shell", "input", "keyevent", key.ToString()]);
+    public async Task<string> ScreenshotAsync(string serial)
+    {
+        var data = await RunAsync(["-s", serial, "exec-out", "screencap", "-p"], 20);
+        if (data.Length < 8 || !data.Take(8).SequenceEqual(new byte[] {137,80,78,71,13,10,26,10})) throw new IOException("ADB не вернул PNG-изображение.");
+        var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "AndroidDesk");
+        Directory.CreateDirectory(folder);
+        var path = Path.Combine(folder, $"Screenshot_{DateTime.Now:yyyy-MM-dd_HH-mm-ss-fff}.png");
+        await File.WriteAllBytesAsync(path, data);
+        return path;
+    }
+}
+
+internal sealed class ScrcpySession
+{
+    private Process? _process;
+    public nint Window { get; private set; }
+    public bool Running => _process is { HasExited: false };
+    public string? RecordingPath { get; private set; }
+    public event Action? Exited;
+    public async Task StartAsync(AdbService tools, string serial, Preferences settings, string? recording)
+    {
+        if (_process != null) throw new InvalidOperationException("Сессия уже запущена.");
+        var info = new ProcessStartInfo(tools.Scrcpy) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = tools.Tools, RedirectStandardOutput = true, RedirectStandardError = true };
+        info.Environment["ADB"] = tools.Adb;
+        foreach (var arg in new[] {"--serial", serial, "--window-title=AndroidDesk • scrcpy", "--no-audio", "--video-codec=h264", $"--max-size={settings.MaxSize}", $"--max-fps={settings.Fps}", $"--video-bit-rate={settings.Bitrate}M", "--video-buffer=0", "--no-window-aspect-ratio-lock", "--window-width=420", "--window-height=780"}) info.ArgumentList.Add(arg);
+        if (!settings.External) info.ArgumentList.Add("--window-borderless");
+        if (recording != null) info.ArgumentList.Add($"--record={recording}");
+        var process = Process.Start(info) ?? throw new IOException("Не удалось запустить scrcpy.");
+        _process = process;
+        RecordingPath = recording;
+        process.OutputDataReceived += (_, e) => { if (e.Data != null) Log.Write("scrcpy: " + e.Data); };
+        process.ErrorDataReceived += (_, e) => { if (e.Data != null) Log.Write("scrcpy: " + e.Data); };
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        process.EnableRaisingEvents = true;
+        process.Exited += (_, _) => Exited?.Invoke();
+        try
+        {
+            for (var attempt = 0; attempt < 200; attempt++)
+            {
+                if (process.HasExited) throw new IOException($"scrcpy завершился с кодом {process.ExitCode}. Подробности: {Path.Combine(Log.Folder, "app.log")}");
+                Window = Native.FindWindow(process.Id);
+                if (Window != 0) return;
+                await Task.Delay(100);
+            }
+            throw new TimeoutException("scrcpy не создал окно за 20 секунд. Проверьте разблокировку телефона и разрешение отладки.");
+        }
+        catch { await StopAsync(); throw; }
+    }
+    public async Task StopAsync()
+    {
+        var process = _process;
+        if (process == null) return;
+        _process = null;
+        try
+        {
+            if (!process.HasExited)
+            {
+                if (Window != 0) Native.PostMessage(Window, 0x0010, 0, 0); // SDL handles WM_CLOSE and finalizes the container.
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+                try { await process.WaitForExitAsync(timeout.Token); }
+                catch (OperationCanceledException)
+                {
+                    process.Kill(true);
+                    await process.WaitForExitAsync();
+                    throw new IOException("scrcpy не ответил на закрытие. Процесс остановлен; последняя видеозапись может быть повреждена.");
+                }
+            }
+            if (process.ExitCode != 0) throw new IOException($"scrcpy завершился с кодом {process.ExitCode}. Проверьте журнал перед использованием записи.");
+        }
+        finally { process.Dispose(); Window = 0; RecordingPath = null; }
+    }
+}

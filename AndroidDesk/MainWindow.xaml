@@ -1,0 +1,63 @@
+<Window x:Class="AndroidDesk.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Grid x:Name="Root" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+    <Grid.RowDefinitions><RowDefinition Height="76"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <Grid Padding="24,12" ColumnSpacing="16">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="260"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+      <Border Background="#237DDA" CornerRadius="12" Width="42" Height="42"><FontIcon Glyph="&#xE8EA;" Foreground="White" FontSize="24"/></Border>
+      <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="Android Desk" FontSize="22" FontWeight="SemiBold"/><TextBlock Text="Ваш телефон. На большом экране." Opacity="0.6" FontSize="12"/></StackPanel>
+      <ComboBox x:Name="Devices" Grid.Column="2" PlaceholderText="Поиск телефона…" DisplayMemberPath="Label" HorizontalAlignment="Stretch" VerticalAlignment="Center" SelectionChanged="DeviceChanged"/>
+      <Button Grid.Column="3" x:Name="ConnectButton" Content="Подключить" Style="{StaticResource AccentButtonStyle}" VerticalAlignment="Center" Click="ConnectClick"/>
+    </Grid>
+    <Grid Grid.Row="1" Padding="20,0,20,12" ColumnSpacing="12">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/><ColumnDefinition Width="264"/></Grid.ColumnDefinitions>
+      <Border Background="#101317" CornerRadius="12" BorderBrush="#29313C" BorderThickness="1">
+        <Grid x:Name="Viewport" Margin="2" SizeChanged="ViewportChanged">
+          <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="16" MaxWidth="350">
+            <FontIcon Glyph="&#xE8EA;" FontSize="56" Foreground="#77B8FA"/>
+            <TextBlock x:Name="EmptyTitle" Text="Подключите телефон" FontSize="24" Foreground="White" TextAlignment="Center"/>
+            <TextBlock x:Name="EmptyHint" Text="Включите отладку по USB, подключите кабель и разрешите доступ на телефоне. Уже подключённые ADB-устройства появятся автоматически." Foreground="#A4AEBB" TextWrapping="Wrap" TextAlignment="Center"/>
+          </StackPanel>
+        </Grid>
+      </Border>
+      <Border Grid.Column="1" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="12" Padding="6,12">
+        <StackPanel Spacing="12" x:Name="PhoneControls">
+          <Button Content="&#xE72B;" FontFamily="Segoe Fluent Icons" FontSize="20" Width="46" Height="44" ToolTipService.ToolTip="Назад" Tag="4" Click="KeyClick"/>
+          <Button Content="&#xE80F;" FontFamily="Segoe Fluent Icons" FontSize="20" Width="46" Height="44" ToolTipService.ToolTip="Домой" Tag="3" Click="KeyClick"/>
+          <Button Content="&#xE7F4;" FontFamily="Segoe Fluent Icons" FontSize="20" Width="46" Height="44" ToolTipService.ToolTip="Недавние приложения" Tag="187" Click="KeyClick"/>
+          <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="6,2"/>
+          <Button Content="&#xE995;" FontFamily="Segoe Fluent Icons" FontSize="20" Width="46" Height="44" ToolTipService.ToolTip="Громче" Tag="24" Click="KeyClick"/>
+          <Button Content="&#xE994;" FontFamily="Segoe Fluent Icons" FontSize="20" Width="46" Height="44" ToolTipService.ToolTip="Тише" Tag="25" Click="KeyClick"/>
+          <Button Content="&#xE708;" FontFamily="Segoe Fluent Icons" FontSize="20" Width="46" Height="44" ToolTipService.ToolTip="Блокировка / пробуждение" Tag="26" Click="KeyClick"/>
+          <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="6,2"/>
+          <Button Content="&#xE722;" FontFamily="Segoe Fluent Icons" FontSize="20" Width="46" Height="44" ToolTipService.ToolTip="Скриншот в Изображения / AndroidDesk" Click="ScreenshotClick"/>
+        </StackPanel>
+      </Border>
+      <ScrollViewer Grid.Column="2" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="20" Padding="8,12,4,8">
+          <StackPanel Spacing="6"><TextBlock Text="ТРАНСЛЯЦИЯ" FontSize="11" FontWeight="SemiBold" CharacterSpacing="160" Opacity="0.55"/><TextBlock Text="Чётко и плавно" FontSize="22" FontWeight="SemiBold"/></StackPanel>
+          <StackPanel Spacing="14" x:Name="QualityControls">
+            <StackPanel Spacing="6"><TextBlock Text="Разрешение · длинная сторона" FontSize="12"/><ComboBox x:Name="Resolution" HorizontalAlignment="Stretch" SelectedIndex="1"><ComboBoxItem Content="1280 px · быстрее" Tag="1280"/><ComboBoxItem Content="1920 px · оптимально" Tag="1920"/><ComboBoxItem Content="2560 px · чётче" Tag="2560"/><ComboBoxItem Content="Оригинальное" Tag="0"/></ComboBox></StackPanel>
+            <StackPanel Spacing="6"><TextBlock Text="Частота кадров" FontSize="12"/><ComboBox x:Name="FrameRate" HorizontalAlignment="Stretch" SelectedIndex="1"><ComboBoxItem Content="30 FPS" Tag="30"/><ComboBoxItem Content="60 FPS" Tag="60"/><ComboBoxItem Content="90 FPS" Tag="90"/><ComboBoxItem Content="120 FPS" Tag="120"/></ComboBox></StackPanel>
+            <StackPanel Spacing="6"><TextBlock Text="Битрейт, Мбит/с" FontSize="12"/><NumberBox x:Name="Bitrate" Minimum="1" Maximum="64" Value="8" SpinButtonPlacementMode="Compact"/></StackPanel>
+            <ToggleSwitch x:Name="ExternalWindow" Header="Отдельное окно scrcpy" OffContent="Экран внутри приложения" OnContent="Окно scrcpy"/>
+            <ToggleSwitch x:Name="AutoConnect" Header="Автоподключение" IsOn="True" OffContent="Вручную" OnContent="При обнаружении телефона" Toggled="AutoConnectChanged"/>
+            <Button Content="Применить настройки" HorizontalAlignment="Stretch" Click="ApplyClick"/>
+          </StackPanel>
+          <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+          <StackPanel Spacing="10"><TextBlock Text="ЗАПИСЬ ЭКРАНА" FontSize="11" FontWeight="SemiBold" CharacterSpacing="160" Opacity="0.55"/>
+            <Button x:Name="RecordButton" HorizontalAlignment="Stretch" Click="RecordClick"><StackPanel Orientation="Horizontal" Spacing="8"><FontIcon x:Name="RecordIcon" Glyph="&#xE7C8;" Foreground="#F06C75" FontSize="16"/><TextBlock x:Name="RecordLabel" Text="Начать запись"/></StackPanel></Button>
+            <TextBlock x:Name="RecordTime" Text="MKV · без звука" FontSize="12" Opacity="0.6"/>
+            <TextBlock Text="Старт и остановка записи ненадолго перезапускают трансляцию." TextWrapping="Wrap" FontSize="12" Opacity="0.6"/>
+            <Button Content="Открыть видеозаписи" HorizontalAlignment="Stretch" Click="OpenVideosClick"/>
+          </StackPanel>
+          <TextBlock Text="Щёлкните по экрану для ввода.&#x0a;Alt + F — полный экран scrcpy в отдельном режиме.&#x0a;Звук отключён для простой и быстрой трансляции." TextWrapping="Wrap" FontSize="12" Opacity="0.55"/>
+        </StackPanel>
+      </ScrollViewer>
+    </Grid>
+    <Grid Grid.Row="2" Padding="24,8,24,14" ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+      <ProgressRing x:Name="BusyRing" Width="16" Height="16" IsActive="False"/>
+      <TextBlock Grid.Column="1" x:Name="Status" Text="Проверяем подключение…" TextWrapping="Wrap" FontSize="12" VerticalAlignment="Center"/>
+      <Button Grid.Column="2" Content="Журнал" Click="OpenLogClick" Padding="10,4" FontSize="12"/>
+    </Grid>
+  </Grid>
+</Window>

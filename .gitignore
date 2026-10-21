@@ -1,0 +1,7 @@
+**/bin/
+**/obj/
+.vs/
+dist/
+*.user
+*.log
+scrcpy-help.txt
