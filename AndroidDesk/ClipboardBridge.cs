@@ -26,16 +26,16 @@ internal sealed class ClipboardBridge : IAsyncDisposable
         _remote = "/data/local/tmp/androiddesk-clipboard-" + id + ".jar";
         await _adb.RunAsync(["-s", _serial, "push", Path.Combine(_adb.Tools, "scrcpy-server"), _remote], 15);
         _port = Encoding.UTF8.GetString(await _adb.RunAsync(["-s", _serial, "forward", "tcp:0", "localabstract:scrcpy_" + id])).Trim();
-        if (!int.TryParse(_port, out var port)) throw new IOException("ADB не выделил порт для буфера обмена.");
+        if (!int.TryParse(_port, out var port)) throw new IOException(L.T("ADB не выделил порт для буфера обмена."));
         var start = new ProcessStartInfo(_adb.Adb) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
         foreach (var arg in new[] { "-s", _serial, "shell", "CLASSPATH=" + _remote, "app_process", "/", "com.genymobile.scrcpy.Server", "5.0.1", "scid=" + id, "video=false", "audio=false", "control=true", "tunnel_forward=true", "send_device_meta=false", "clipboard_autosync=false", "cleanup=false", "power_on=false", "log_level=warn" }) start.ArgumentList.Add(arg);
-        _server = Process.Start(start) ?? throw new IOException("Не удалось запустить канал буфера обмена.");
+        _server = Process.Start(start) ?? throw new IOException(L.T("Не удалось запустить канал буфера обмена."));
         _server.OutputDataReceived += (_, _) => { }; // Never log clipboard payloads.
         _server.ErrorDataReceived += (_, e) => { if (e.Data != null) Log.Write("Clipboard server: " + e.Data); };
         _server.BeginOutputReadLine(); _server.BeginErrorReadLine();
         for (var attempt = 0; attempt < 30; attempt++)
         {
-            if (_server.HasExited) throw new IOException("Сервер буфера обмена завершился.");
+            if (_server.HasExited) throw new IOException(L.T("Сервер буфера обмена завершился."));
             var client = new TcpClient { NoDelay = true };
             try
             {
@@ -43,7 +43,7 @@ internal sealed class ClipboardBridge : IAsyncDisposable
                 await client.ConnectAsync("127.0.0.1", port, timeout.Token);
                 var hello = new byte[1];
                 await client.GetStream().ReadExactlyAsync(hello, timeout.Token);
-                if (hello[0] != 0) throw new IOException("Некорректный ответ сервера буфера обмена.");
+                if (hello[0] != 0) throw new IOException(L.T("Некорректный ответ сервера буфера обмена."));
                 _client = client;
                 Log.Write("Clipboard bridge connected");
                 return;
@@ -51,13 +51,13 @@ internal sealed class ClipboardBridge : IAsyncDisposable
             catch (Exception ex) when (ex is IOException or SocketException or OperationCanceledException) { client.Dispose(); }
             await Task.Delay(100);
         }
-        throw new IOException("Канал буфера обмена не подключился.");
+        throw new IOException(L.T("Канал буфера обмена не подключился."));
     }
     public async Task SetTextAsync(string text)
     {
         if (_disposed) return;
         var utf8 = Encoding.UTF8.GetBytes(text);
-        if (utf8.Length > 262130) throw new IOException("Текст слишком большой для буфера scrcpy (максимум 256 КБ).");
+        if (utf8.Length > 262130) throw new IOException(L.T("Текст слишком большой для буфера scrcpy (максимум 256 КБ)."));
         var packet = new byte[14 + utf8.Length];
         packet[0] = 9; // SET_CLIPBOARD; sequence=0 (no acknowledgement); paste=false.
         BinaryPrimitives.WriteUInt32BigEndian(packet.AsSpan(10, 4), (uint)utf8.Length);
@@ -78,15 +78,15 @@ internal sealed class ClipboardBridge : IAsyncDisposable
         await _write.WaitAsync();
         try
         {
-            if (_disposed || _client == null) throw new IOException("Канал буфера обмена закрыт.");
+            if (_disposed || _client == null) throw new IOException(L.T("Канал буфера обмена закрыт."));
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
             var stream = _client.GetStream();
             await stream.WriteAsync(new byte[] { 8, 0 }, timeout.Token); // GET_CLIPBOARD, no copy key.
             var header = new byte[5];
             await stream.ReadExactlyAsync(header, timeout.Token);
-            if (header[0] != 0) throw new IOException("Неожиданный ответ буфера обмена.");
+            if (header[0] != 0) throw new IOException(L.T("Неожиданный ответ буфера обмена."));
             var length = BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(1));
-            if (length > 262144) throw new IOException("Некорректная длина буфера обмена.");
+            if (length > 262144) throw new IOException(L.T("Некорректная длина буфера обмена."));
             var data = new byte[length];
             await stream.ReadExactlyAsync(data, timeout.Token);
             return Encoding.UTF8.GetString(data);

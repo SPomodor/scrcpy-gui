@@ -30,6 +30,7 @@ internal sealed class Preferences
     public bool RecordAudio { get; set; } = true;
     public bool PhysicalKeyboard { get; set; } = true;
     public bool SharedClipboard { get; set; } = true;
+    public string Language { get; set; } = "system";
     public Preferences Copy() => (Preferences)MemberwiseClone();
     public static Preferences Load()
     {
@@ -72,7 +73,7 @@ internal sealed class AdbService
     {
         var start = new ProcessStartInfo(Adb) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = Tools };
         foreach (var arg in args) start.ArgumentList.Add(arg);
-        using var process = Process.Start(start) ?? throw new IOException("Не удалось запустить ADB.");
+        using var process = Process.Start(start) ?? throw new IOException(L.T("Не удалось запустить ADB."));
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
         using var output = new MemoryStream();
         var errors = process.StandardError.ReadToEndAsync(timeout.Token);
@@ -110,7 +111,7 @@ internal sealed class AdbService
         var separator = value.LastIndexOf(':');
         if (separator < 1 || !IPAddress.TryParse(value[..separator].Trim('[', ']'), out var address) ||
             !int.TryParse(value[(separator + 1)..], out var port) || port is < 1 or > 65535)
-            throw new ArgumentException("Укажите IP и порт с экрана телефона, например 192.168.0.10:37001.");
+            throw new ArgumentException(L.T("Укажите IP и порт с экрана телефона, например 192.168.0.10:37001."));
         return address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? $"[{address}]:{port}" : $"{address}:{port}";
     }
     public async Task<IReadOnlyList<string>> DiscoverWifiAsync()
@@ -129,29 +130,29 @@ internal sealed class AdbService
     {
         endpoint = WifiEndpoint(endpoint);
         if (code.Length != 6 || code.Any(c => c is < '0' or > '9'))
-            throw new ArgumentException("Введите шестизначный код с экрана сопряжения телефона.");
+            throw new ArgumentException(L.T("Введите шестизначный код с экрана сопряжения телефона."));
         var output = Encoding.UTF8.GetString(await RunAsync(["pair", endpoint, code], 20));
         if (!output.Contains("Successfully paired", StringComparison.OrdinalIgnoreCase))
-            throw new IOException("Не удалось выполнить сопряжение. Проверьте код и порт сопряжения на телефоне.");
+            throw new IOException(L.T("Не удалось выполнить сопряжение. Проверьте код и порт сопряжения на телефоне."));
     }
     public async Task<string> ConnectWifiAsync(string endpoint)
     {
         endpoint = WifiEndpoint(endpoint);
         var output = Encoding.UTF8.GetString(await RunAsync(["connect", endpoint], 15));
         if (!output.Contains("connected to", StringComparison.OrdinalIgnoreCase))
-            throw new IOException("Не удалось подключиться. Проверьте Wi-Fi, сопряжение и порт подключения на телефоне.");
+            throw new IOException(L.T("Не удалось подключиться. Проверьте Wi-Fi, сопряжение и порт подключения на телефоне."));
         for (var attempt = 0; attempt < 8; attempt++)
         {
             if ((await DevicesAsync()).Any(x => x.Serial == endpoint && x.State == "device")) return endpoint;
             await Task.Delay(250);
         }
-        throw new IOException("Телефон найден, но ещё не готов. Проверьте разрешение отладки на телефоне и попробуйте снова.");
+        throw new IOException(L.T("Телефон найден, но ещё не готов. Проверьте разрешение отладки на телефоне и попробуйте снова."));
     }
     public Task<byte[]> KeyAsync(string serial, int key) => RunAsync(["-s", serial, "shell", "input", "keyevent", key.ToString()]);
     public async Task<byte[]> CaptureFrameAsync(string serial)
     {
         var data = await RunAsync(["-s", serial, "exec-out", "screencap", "-p"], 8);
-        if (data.Length < 8 || !data.Take(8).SequenceEqual(new byte[] {137,80,78,71,13,10,26,10})) throw new IOException("ADB не вернул PNG-изображение.");
+        if (data.Length < 8 || !data.Take(8).SequenceEqual(new byte[] {137,80,78,71,13,10,26,10})) throw new IOException(L.T("ADB не вернул PNG-изображение."));
         return data;
     }
     public async Task<string> ScreenshotAsync(string serial)
@@ -176,7 +177,7 @@ internal sealed class ScrcpySession
     public event Action? Exited;
     public async Task StartAsync(AdbService tools, string serial, Preferences settings, string? recording, Action<nint>? prepareWindow = null)
     {
-        if (_process != null) throw new InvalidOperationException("Сессия уже запущена.");
+        if (_process != null) throw new InvalidOperationException(L.T("Сессия уже запущена."));
         var info = new ProcessStartInfo(tools.Scrcpy) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = tools.Tools, RedirectStandardOutput = true, RedirectStandardError = true };
         info.Environment["ADB"] = tools.Adb;
         foreach (var arg in new[] {"--serial", serial, "--window-title=AndroidDesk • scrcpy", "--video-codec=h264", $"--max-size={settings.MaxSize}", $"--max-fps={settings.Fps}", $"--video-bit-rate={settings.Bitrate}M", "--video-buffer=0", "--background-color=101317", "--no-window-aspect-ratio-lock", "--window-width=420", "--window-height=780"}) info.ArgumentList.Add(arg);
@@ -190,7 +191,7 @@ internal sealed class ScrcpySession
         else info.ArgumentList.Add("--no-audio");
         if (!settings.External) info.ArgumentList.Add("--window-borderless");
         if (recording != null) info.ArgumentList.Add($"--record={recording}");
-        var process = Process.Start(info) ?? throw new IOException("Не удалось запустить scrcpy.");
+        var process = Process.Start(info) ?? throw new IOException(L.T("Не удалось запустить scrcpy."));
         _process = process;
         RecordingPath = recording;
         var firstFrame = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -219,7 +220,7 @@ internal sealed class ScrcpySession
         {
             for (var attempt = 0; attempt < 200; attempt++)
             {
-                if (process.HasExited) throw new IOException($"scrcpy завершился с кодом {process.ExitCode}. Подробности: {Path.Combine(Log.Folder, "app.log")}");
+                if (process.HasExited) throw new IOException(L.F("scrcpy завершился с кодом {0}. Подробности: {1}", process.ExitCode, Path.Combine(Log.Folder, "app.log")));
                 if (Window == 0)
                 {
                     Window = Native.FindWindow(process.Id);
@@ -229,12 +230,12 @@ internal sealed class ScrcpySession
                 {
                     // Give SDL one render pass before exposing its replacement window.
                     await Task.Delay(100);
-                    if (process.HasExited) throw new IOException("scrcpy завершился во время запуска видео.");
+                    if (process.HasExited) throw new IOException(L.T("scrcpy завершился во время запуска видео."));
                     return;
                 }
                 await Task.Delay(100);
             }
-            throw new TimeoutException("scrcpy не подготовил видео за 20 секунд. Проверьте телефон и разрешение отладки.");
+            throw new TimeoutException(L.T("scrcpy не подготовил видео за 20 секунд. Проверьте телефон и разрешение отладки."));
         }
         catch { await StopAsync(); throw; }
     }
@@ -254,10 +255,10 @@ internal sealed class ScrcpySession
                 {
                     process.Kill(true);
                     await process.WaitForExitAsync();
-                    throw new IOException("scrcpy не ответил на закрытие. Процесс остановлен; последняя видеозапись может быть повреждена.");
+                    throw new IOException(L.T("scrcpy не ответил на закрытие. Процесс остановлен; последняя видеозапись может быть повреждена."));
                 }
             }
-            if (process.ExitCode != 0) throw new IOException($"scrcpy завершился с кодом {process.ExitCode}. Проверьте журнал перед использованием записи.");
+            if (process.ExitCode != 0) throw new IOException(L.F("scrcpy завершился с кодом {0}. Проверьте журнал перед использованием записи.", process.ExitCode));
         }
         finally { process.Dispose(); Window = 0; RecordingPath = null; }
     }

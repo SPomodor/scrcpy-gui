@@ -97,6 +97,6 @@ internal static class Native
         var style = (long)GetStyle(child, -16);
         SetStyle(child, -16, (nint)((style & ~0x80CF0000L) | 0x40000000L | 0x04000000L));
         SetParent(child, parent);
-        if (GetParent(child) != parent) throw new Win32Exception(Marshal.GetLastWin32Error(), "Не удалось встроить окно scrcpy. Включите отдельное окно.");
+        if (GetParent(child) != parent) throw new Win32Exception(Marshal.GetLastWin32Error(), L.T("Не удалось встроить окно scrcpy. Включите отдельное окно."));
     }
 }

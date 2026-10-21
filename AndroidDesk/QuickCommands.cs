@@ -34,7 +34,7 @@ internal sealed class QuickCommandStore
     public QuickCommand Save(Guid? id, string name, string command, bool pinned)
     {
         name = name.Trim(); command = command.Trim();
-        if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Укажите название команды.");
+        if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException(L.T("Укажите название команды."));
         CommandRunner.Parse(command);
         var item = new QuickCommand(id ?? Guid.NewGuid(), name, command, pinned);
         var next = _items.ToList();
@@ -46,7 +46,7 @@ internal sealed class QuickCommandStore
     public void Delete(Guid id) => Persist(_items.Where(x => x.Id != id).ToList());
     private void Persist(List<QuickCommand> items)
     {
-        if (_preserveUnreadable) throw new IOException("Не удалось прочитать библиотеку или создать её резервную копию. Проверьте доступ к commands.json; исходный файл сохранён.");
+        if (_preserveUnreadable) throw new IOException(L.T("Не удалось прочитать библиотеку или создать её резервную копию. Проверьте доступ к commands.json; исходный файл сохранён."));
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);
         var temporary = _path + ".tmp";
         File.WriteAllText(temporary, JsonSerializer.Serialize(items, new JsonSerializerOptions { WriteIndented = true }));
@@ -79,7 +79,7 @@ internal static class CommandRunner
                 if (tokens.Count == 1 && tokens[0] == "shell")
                 {
                     var remote = text[(i + 1)..].Trim();
-                    if (remote.Length == 0) throw new ArgumentException("Укажите команду после shell. Интерактивный терминал не поддерживается.");
+                    if (remote.Length == 0) throw new ArgumentException(L.T("Укажите команду после shell. Интерактивный терминал не поддерживается."));
                     return ["shell", "-n", remote];
                 }
                 continue;
@@ -94,19 +94,19 @@ internal static class CommandRunner
             }
             else token.Append(c);
         }
-        if (quote != '\0') throw new ArgumentException("Закройте кавычки в команде.");
+        if (quote != '\0') throw new ArgumentException(L.T("Закройте кавычки в команде."));
         if (started) tokens.Add(token.ToString());
         if (tokens.Count == 1 && IsAdb(tokens[0])) tokens.Clear();
-        if (tokens.Count == 0) throw new ArgumentException("Введите ADB-команду, например adb shell getprop ro.product.model.");
-        if (tokens[0] == "shell") throw new ArgumentException("Укажите команду после shell.");
-        if (tokens[0].StartsWith('-')) throw new ArgumentException("Начните с команды ADB. Телефон выбирается в окне «Устройства», параметры -s/-d/-e не нужны.");
+        if (tokens.Count == 0) throw new ArgumentException(L.T("Введите ADB-команду, например adb shell getprop ro.product.model."));
+        if (tokens[0] == "shell") throw new ArgumentException(L.T("Укажите команду после shell."));
+        if (tokens[0].StartsWith('-')) throw new ArgumentException(L.T("Начните с команды ADB. Телефон выбирается в окне «Устройства», параметры -s/-d/-e не нужны."));
         return tokens;
     }
     private static bool IsAdb(string value) => value.Equals("adb", StringComparison.OrdinalIgnoreCase) || value.Equals("adb.exe", StringComparison.OrdinalIgnoreCase);
 
     public static async Task<CommandResult> RunAsync(AdbService adb, string serial, string command, CancellationToken cancellation = default)
     {
-        if (string.IsNullOrWhiteSpace(serial)) throw new InvalidOperationException("Сначала выберите подключённый телефон.");
+        if (string.IsNullOrWhiteSpace(serial)) throw new InvalidOperationException(L.T("Сначала выберите подключённый телефон."));
         var args = Parse(command);
         var start = new ProcessStartInfo(adb.Adb)
         {
@@ -118,7 +118,7 @@ internal static class CommandRunner
         foreach (var arg in args) start.ArgumentList.Add(arg);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
         timeout.CancelAfter(TimeSpan.FromSeconds(60));
-        using var process = Process.Start(start) ?? throw new IOException("Не удалось запустить ADB.");
+        using var process = Process.Start(start) ?? throw new IOException(L.T("Не удалось запустить ADB."));
         process.StandardInput.Close();
         var output = ReadBoundedAsync(process.StandardOutput);
         var error = ReadBoundedAsync(process.StandardError);
@@ -129,7 +129,7 @@ internal static class CommandRunner
             await process.WaitForExitAsync();
             await Task.WhenAll(output, error);
             if (cancellation.IsCancellationRequested) throw new OperationCanceledException(cancellation);
-            throw new TimeoutException("Команда превысила 60 секунд. Клиент ADB остановлен; запущенный процесс на Android может продолжить работу.");
+            throw new TimeoutException(L.T("Команда превысила 60 секунд. Клиент ADB остановлен; запущенный процесс на Android может продолжить работу."));
         }
         var stdout = await output; var stderr = await error;
         return new(process.ExitCode, (stdout + (stdout.Length > 0 && stderr.Length > 0 ? "\n" : "") + stderr).TrimEnd());
@@ -145,7 +145,7 @@ internal static class CommandRunner
             if (take > 0) text.Append(buffer, 0, take);
             truncated |= take < read;
         }
-        if (truncated) text.Append("\n… Вывод сокращён (64 тысячи символов). ");
+        if (truncated) text.Append(L.T("\n… Вывод сокращён (64 тысячи символов). "));
         return text.ToString();
     }
 }

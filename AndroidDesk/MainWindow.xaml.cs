@@ -65,6 +65,7 @@ public sealed partial class MainWindow : Window
             _poll.Stop(); _clock.Stop(); _inputFocus.Stop();
             Clipboard.ContentChanged -= ClipboardChanged;
             _commandShutdown.Cancel();
+            L.Changed -= LanguageChanged;
             _quickCommands.Changed -= RebuildPinnedCommands;
             _settings?.Close(); _devicePicker?.Close(); _commandsWindow?.Close(); _notification?.Close();
             await ExecuteAsync(async () => await StopAsync());
@@ -105,6 +106,7 @@ public sealed partial class MainWindow : Window
         Clipboard.ContentChanged += ClipboardChanged;
         _clock.Tick += (_, _) => RecordTime.Text = $"{DateTime.Now - _recordStarted:mm\\:ss}";
         ObserveSession(_session);
+        L.Changed += LanguageChanged;
         _quickCommands.Changed += RebuildPinnedCommands;
         RebuildPinnedCommands();
         UpdateControls();
@@ -127,7 +129,7 @@ public sealed partial class MainWindow : Window
                 _failedSerial = _serial;
                 var recording = _session.RecordingPath;
                 await StopAsync();
-                if (recording == null) Notify("Трансляция завершена", "Нажмите кнопку подключения для повторного запуска.");
+                if (recording == null) Notify(L.T("Трансляция завершена"), L.T("Нажмите кнопку подключения для повторного запуска."));
             });
         });
     }
@@ -140,8 +142,8 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             Log.Write(ex.ToString());
-            if (!_session.Running) { EmptyTitle.Text = "Не удалось подключиться"; EmptyHint.Text = ex.Message; }
-            if (!_closing) Notify("Ошибка", ex.Message, error: true);
+            if (!_session.Running) { EmptyTitle.Text = L.T("Не удалось подключиться"); EmptyHint.Text = ex.Message; }
+            if (!_closing) Notify(L.T("Ошибка"), ex.Message, error: true);
         }
         finally { _busy = false; UpdateControls(); _operation.Release(); }
     }
@@ -162,14 +164,14 @@ public sealed partial class MainWindow : Window
                 {
                     try { await StopAsync(); }
                     finally { _userStopped = false; }
-                    Notify("Телефон отключён", "Ждём повторного подключения.");
+                    Notify(L.T("Телефон отключён"), L.T("Ждём повторного подключения."));
                 });
             }
             if (_failedSerial != null && !_devices.Any(x => x.Serial == _failedSerial)) _failedSerial = null;
             if (_devices.Count == 0 && !_session.Running)
             {
-                EmptyTitle.Text = "Подключите телефон";
-                EmptyHint.Text = devices.Any(x => x.State == "unauthorized") ? "Разрешите USB-отладку на экране телефона." : devices.Any(x => x.State == "offline") ? "Телефон offline. Проверьте USB-кабель или Wi-Fi." : "Включите USB-отладку и разрешите подключение. Выбор телефона — кнопка справа.";
+                EmptyTitle.Text = L.T("Подключите телефон");
+                EmptyHint.Text = devices.Any(x => x.State == "unauthorized") ? L.T("Разрешите USB-отладку на экране телефона.") : devices.Any(x => x.State == "offline") ? L.T("Телефон offline. Проверьте USB-кабель или Wi-Fi.") : L.T("Включите USB-отладку и разрешите подключение. Выбор телефона — кнопка справа.");
             }
             else if (!_session.Running && !_userStopped && _preferences.AutoConnect && _selectedSerial is string serial && _failedSerial != serial)
             {
@@ -186,7 +188,7 @@ public sealed partial class MainWindow : Window
         {
             Log.Write(ex.ToString());
             EmptyHint.Text = "ADB: " + ex.Message;
-            if (_lastError != ex.Message) { _lastError = ex.Message; Notify("Ошибка ADB", ex.Message, error: true); }
+            if (_lastError != ex.Message) { _lastError = ex.Message; Notify(L.T("Ошибка ADB"), ex.Message, error: true); }
         }
         finally { _polling = false; }
     }
@@ -195,7 +197,7 @@ public sealed partial class MainWindow : Window
         _serial = serial;
         _selectedSerial = serial;
         _frameReady = false;
-        EmptyTitle.Text = "Подключаем экран…";
+        EmptyTitle.Text = L.T("Подключаем экран…");
         try
         {
             await _session.StartAsync(_adb, serial, _preferences, recording, window =>
@@ -212,8 +214,8 @@ public sealed partial class MainWindow : Window
             }
             FrozenFrame.Visibility = Visibility.Collapsed;
             Log.Write("Display: replacement frame ready");
-            EmptyTitle.Text = "Экран в отдельном окне";
-            EmptyHint.Text = "Чтобы вернуть экран сюда, выключите отдельное окно в настройках ⋯.";
+            EmptyTitle.Text = L.T("Экран в отдельном окне");
+            EmptyHint.Text = L.T("Чтобы вернуть экран сюда, выключите отдельное окно в настройках ⋯.");
             EmptyState.Visibility = _preferences.External ? Visibility.Visible : Visibility.Collapsed;
             if (recording != null) { _recordStarted = DateTime.Now; RecordTime.Text = "00:00"; _clock.Start(); }
             _ = EnsureClipboardAsync(serial);
@@ -276,7 +278,7 @@ public sealed partial class MainWindow : Window
         await previous.StopAsync();
         if (_phoneInputActive && !_preferences.External) Native.FocusEmbedded(_hwnd, replacement.Window);
         _ = EnsureClipboardAsync(serial);
-        if (previousRecording != null) NotifySaved("Запись сохранена", previousRecording);
+        if (previousRecording != null) NotifySaved(L.T("Запись сохранена"), previousRecording);
     }
     private async Task StopAsync()
     {
@@ -290,7 +292,7 @@ public sealed partial class MainWindow : Window
         try
         {
             await _session.StopAsync();
-            if (recording != null && !_closing) NotifySaved("Запись сохранена", recording);
+            if (recording != null && !_closing) NotifySaved(L.T("Запись сохранена"), recording);
         }
         finally
         {
@@ -298,8 +300,8 @@ public sealed partial class MainWindow : Window
             _serial = null; _clock.Stop();
             FrozenFrame.Visibility = FrozenFrame.Source == null ? Visibility.Collapsed : Visibility.Visible;
             EmptyState.Visibility = FrozenFrame.Source == null ? Visibility.Visible : Visibility.Collapsed;
-            EmptyTitle.Text = "Трансляция остановлена";
-            EmptyHint.Text = "Подключиться — кнопка справа. Выбрать телефон — значок телефона.";
+            EmptyTitle.Text = L.T("Трансляция остановлена");
+            EmptyHint.Text = L.T("Подключиться — кнопка справа. Выбрать телефон — значок телефона.");
         }
     }
     private async void ClipboardChanged(object? sender, object e)
@@ -327,7 +329,7 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             Log.Write("Clipboard bridge: " + ex.Message);
-            if (!_closing) Notify("Буфер обмена недоступен", ex.Message, error: true);
+            if (!_closing) Notify(L.T("Буфер обмена недоступен"), ex.Message, error: true);
         }
         finally { _clipboardGate.Release(); }
         await SyncClipboardAsync();
@@ -406,17 +408,17 @@ public sealed partial class MainWindow : Window
     private void UpdateControls()
     {
         ConnectButton.IsEnabled = !_busy && (_session.Running || _selectedSerial != null);
-        ToolTipService.SetToolTip(ConnectButton, _session.Running ? "Отключить" : "Подключить");
+        ToolTipService.SetToolTip(ConnectButton, _session.Running ? L.T("Отключить") : L.T("Подключить"));
         foreach (var button in PhoneControls.Children.OfType<Button>()) button.IsEnabled = _devices.Any(x => x.Serial == (_serial ?? _selectedSerial));
         RecordButton.IsEnabled = !_busy && _session.Running;
         var recording = _session.RecordingPath != null;
         RecordButton.Content = recording ? "\uE71A" : "\uE7C8";
-        AutomationProperties.SetName(RecordButton, recording ? "Остановить запись" : "Начать запись");
-        ToolTipService.SetToolTip(RecordButton, recording ? "Остановить запись" : $"Запись {_preferences.RecordingFormat.ToUpperInvariant()}" + (_preferences.RecordAudio ? " со звуком" : " без звука"));
+        AutomationProperties.SetName(RecordButton, recording ? L.T("Остановить запись") : L.T("Начать запись"));
+        ToolTipService.SetToolTip(RecordButton, recording ? L.T("Остановить запись") : L.F("Запись {0}", _preferences.RecordingFormat.ToUpperInvariant()) + (_preferences.RecordAudio ? L.T(" со звуком") : L.T(" без звука")));
         RecordTime.Visibility = recording ? Visibility.Visible : Visibility.Collapsed;
         DeviceButton.IsEnabled = !_closing;
         SettingsButton.IsEnabled = !_closing;
-        ToolTipService.SetToolTip(DeviceButton, "Выбор устройства" + (_serial == null ? "" : " · " + _serial));
+        ToolTipService.SetToolTip(DeviceButton, L.T("Выбор устройства") + (_serial == null ? "" : " · " + _serial));
     }
     private void NotifySaved(string title, string path) => Notify(title, Path.GetFileName(path), path);
     private void Notify(string title, string message, string? path = null, bool error = false)
@@ -453,15 +455,15 @@ public sealed partial class MainWindow : Window
         if (serial == null || _closing) return;
         await _commands.WaitAsync();
         try { if (!_closing) await _adb.KeyAsync(serial, int.Parse((string)((Button)sender).Tag)); }
-        catch (Exception ex) { Log.Write(ex.ToString()); Notify("Команда не выполнена", ex.Message, error: true); }
+        catch (Exception ex) { Log.Write(ex.ToString()); Notify(L.T("Команда не выполнена"), ex.Message, error: true); }
         finally { _commands.Release(); }
     }
     private async void ScreenshotClick(object sender, RoutedEventArgs e)
     {
         var serial = _serial ?? _selectedSerial;
         if (serial == null || _closing || !await _screenshots.WaitAsync(0)) return;
-        try { NotifySaved("Скриншот сохранён", await _adb.ScreenshotAsync(serial)); }
-        catch (Exception ex) { Log.Write(ex.ToString()); Notify("Скриншот не сохранён", ex.Message, error: true); }
+        try { NotifySaved(L.T("Скриншот сохранён"), await _adb.ScreenshotAsync(serial)); }
+        catch (Exception ex) { Log.Write(ex.ToString()); Notify(L.T("Скриншот не сохранён"), ex.Message, error: true); }
         finally { _screenshots.Release(); }
     }
     private void ViewportChanged(object sender, SizeChangedEventArgs e) => PositionScreen();
@@ -471,13 +473,25 @@ public sealed partial class MainWindow : Window
         if (_settings != null) { _settings.Activate(); return; }
         var window = new SettingsWindow(this, _preferences.Copy(), _session.RecordingPath != null);
         _settings = window;
+        window.LanguageRequested = language =>
+        {
+            try
+            {
+                var previous = _preferences.Language;
+                _preferences.Language = language;
+                try { _preferences.Save(); }
+                catch { _preferences.Language = previous; throw; }
+                L.Set(language);
+            }
+            catch (Exception ex) { Notify(L.T("Ошибка"), ex.Message, error: true); }
+        };
         window.Closed += (_, _) => { if (_settings == window) _settings = null; };
         window.ApplyRequested = async preferences =>
         {
             var applied = false;
             await ExecuteAsync(async () =>
             {
-                if (_session.RecordingPath != null) { Notify("Идёт запись", "Остановите запись перед изменением настроек."); return; }
+                if (_session.RecordingPath != null) { Notify(L.T("Идёт запись"), L.T("Остановите запись перед изменением настроек.")); return; }
                 var serial = _serial;
                 preferences.Save();
                 _preferences = preferences;
@@ -490,6 +504,11 @@ public sealed partial class MainWindow : Window
         window.Activate();
     }
     private string? CommandDevice() => _devices.Any(x => x.Serial == (_serial ?? _selectedSerial)) ? _serial ?? _selectedSerial : null;
+    private void LanguageChanged()
+    {
+        UpdateControls();
+        RebuildPinnedCommands();
+    }
     private void CommandsClick(object sender, RoutedEventArgs e)
     {
         _phoneInputActive = false;
@@ -511,7 +530,7 @@ public sealed partial class MainWindow : Window
                 Content = new TextBlock { Text = new string(command.Name.Where(char.IsLetterOrDigit).Take(2).ToArray()).ToUpperInvariant() is { Length: > 0 } abbreviation ? abbreviation : ">_", FontFamily = new FontFamily("Segoe UI"), FontSize = 11, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
                 IsEnabled = !_runningQuickCommands.Contains(command.Id)
             };
-            AutomationProperties.SetName(button, "Выполнить: " + command.Name);
+            AutomationProperties.SetName(button, L.T("Выполнить: ") + command.Name);
             ToolTipService.SetToolTip(button, command.Name + "\n" + command.Command);
             button.Click += async (_, _) => await RunPinnedAsync(command);
             PinnedCommands.Children.Add(button);
@@ -523,16 +542,16 @@ public sealed partial class MainWindow : Window
         RebuildPinnedCommands();
         try
         {
-            var serial = CommandDevice() ?? throw new InvalidOperationException("Сначала подключите и выберите телефон.");
+            var serial = CommandDevice() ?? throw new InvalidOperationException(L.T("Сначала подключите и выберите телефон."));
             var result = await CommandRunner.RunAsync(_adb, serial, command.Command, _commandShutdown.Token);
             if (_closing) return;
             _lastQuickResult = (command.Name, serial, result);
             _commandsWindow?.DisplayResult(command.Name, serial, result);
-            if (result.ExitCode == 0) Notify(command.Name + " · выполнено", "Результат — в окне быстрых команд.");
-            else Notify(command.Name + " · ошибка", $"Код {result.ExitCode}. {result.Output}", error: true);
+            if (result.ExitCode == 0) Notify(command.Name + L.T(" · выполнено"), L.T("Результат — в окне быстрых команд."));
+            else Notify(command.Name + L.T(" · ошибка"), L.F("Код {0}. {1}", result.ExitCode, result.Output), error: true);
         }
         catch (OperationCanceledException) { }
-        catch (Exception ex) { if (!_closing) Notify("Команда не выполнена", ex.Message, error: true); }
+        catch (Exception ex) { if (!_closing) Notify(L.T("Команда не выполнена"), ex.Message, error: true); }
         finally { _runningQuickCommands.Remove(command.Id); if (!_closing) RebuildPinnedCommands(); }
     }
     private void DeviceClick(object sender, RoutedEventArgs e)

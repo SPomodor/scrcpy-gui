@@ -11,6 +11,7 @@ internal static class WindowStyle
 {
     public static void Apply(Window window, FrameworkElement root)
     {
+        UiLanguage.Attach(window, root);
         var dark = root.ActualTheme == ElementTheme.Dark;
         var background = dark ? Windows.UI.Color.FromArgb(255, 32, 32, 32) : Windows.UI.Color.FromArgb(255, 243, 243, 243);
         var foreground = dark ? Windows.UI.Color.FromArgb(255, 245, 245, 245) : Windows.UI.Color.FromArgb(255, 25, 25, 25);
@@ -41,25 +42,46 @@ internal static class WindowStyle
 
 internal sealed class SettingsWindow : Window
 {
+    private readonly ComboBox _language = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
+    public Action<string>? LanguageRequested { get; set; }
     private readonly ComboBox _resolution = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly ComboBox _fps = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly ComboBox _format = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly NumberBox _bitrate = new() { Minimum = 1, Maximum = 64, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
-    private readonly ToggleSwitch _audio = new() { Header = "Звук в записи", OnContent = "AAC · звук телефона", OffContent = "Без звука" };
-    private readonly ToggleSwitch _external = new() { Header = "Отдельное окно scrcpy", OnContent = "Отдельное окно", OffContent = "Экран внутри приложения" };
-    private readonly ToggleSwitch _auto = new() { Header = "Автоподключение", OnContent = "Включено", OffContent = "Выключено" };
-    private readonly ToggleSwitch _keyboard = new() { Header = "Физическая клавиатура (UHID)", OnContent = "Включено", OffContent = "Совместимый ввод SDK" };
-    private readonly ToggleSwitch _clipboard = new() { Header = "Общий текстовый буфер", OnContent = "В обе стороны", OffContent = "Только штатная вставка scrcpy" };
+    private readonly ToggleSwitch _audio = new() { Header = L.T("Звук в записи"), OnContent = L.T("AAC · звук телефона"), OffContent = L.T("Без звука") };
+    private readonly ToggleSwitch _external = new() { Header = L.T("Отдельное окно scrcpy"), OnContent = L.T("Отдельное окно"), OffContent = L.T("Экран внутри приложения") };
+    private readonly ToggleSwitch _auto = new() { Header = L.T("Автоподключение"), OnContent = L.T("Включено"), OffContent = L.T("Выключено") };
+    private readonly ToggleSwitch _keyboard = new() { Header = L.T("Физическая клавиатура (UHID)"), OnContent = L.T("Включено"), OffContent = L.T("Совместимый ввод SDK") };
+    private readonly ToggleSwitch _clipboard = new() { Header = L.T("Общий текстовый буфер"), OnContent = L.T("В обе стороны"), OffContent = L.T("Только штатная вставка scrcpy") };
     public Func<Preferences, Task<bool>>? ApplyRequested { get; set; }
     public SettingsWindow(Window owner, Preferences preferences, bool recording)
     {
-        Title = "Настройки";
+        Title = L.T("Настройки");
         SystemBackdrop = new MicaBackdrop();
         WindowStyle.Own(this, owner, 410, 810);
         var panel = new StackPanel { Spacing = 16, Padding = new Thickness(24) };
-        panel.Children.Add(new TextBlock { Text = "Настройки", FontSize = 26, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        if (recording) panel.Children.Add(new TextBlock { Text = "Для изменения настроек сначала остановите запись.", TextWrapping = TextWrapping.Wrap });
-        AddChoices(_resolution, [("720 px", 720), ("960 px", 960), ("1280 px", 1280), ("1600 px", 1600), ("1920 px", 1920), ("2560 px", 2560), ("Оригинальное", 0)], preferences.MaxSize);
+        panel.Children.Add(new TextBlock { Text = L.T("Настройки"), FontSize = 26, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        foreach (var (label, value) in new[] { (L.T("Системный"), "system"), (L.T("Русский"), "ru"), ("English", "en") })
+        {
+            var item = new ComboBoxItem { Content = label, Tag = value };
+            _language.Items.Add(item);
+            if (value == preferences.Language) _language.SelectedItem = item;
+        }
+        if (_language.SelectedItem == null) _language.SelectedIndex = 0;
+        _language.SelectionChanged += (_, _) =>
+        {
+            if (_language.SelectedItem is not ComboBoxItem { Tag: string language }) return;
+            preferences.Language = language;
+            LanguageRequested?.Invoke(preferences.Language);
+        };
+        AddField(panel, L.T("Язык интерфейса"), _language);
+        panel.Children.Add(new TextBlock { Text = L.T("Язык применяется сразу. Системный: русский для русской Windows, английский для остальных языков."), FontSize = 12, Opacity = 0.65, TextWrapping = TextWrapping.Wrap });
+        var author = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        author.Children.Add(new TextBlock { Text = L.T("Автор"), VerticalAlignment = VerticalAlignment.Center, Opacity = 0.65 });
+        author.Children.Add(new HyperlinkButton { Content = "SPomodor", NavigateUri = new Uri("https://github.com/SPomodor"), Padding = new Thickness(0, 4, 0, 4) });
+        panel.Children.Add(author);
+        if (recording) panel.Children.Add(new TextBlock { Text = L.T("Для изменения настроек сначала остановите запись."), TextWrapping = TextWrapping.Wrap });
+        AddChoices(_resolution, [("720 px", 720), ("960 px", 960), ("1280 px", 1280), ("1600 px", 1600), ("1920 px", 1920), ("2560 px", 2560), (L.T("Оригинальное"), 0)], preferences.MaxSize);
         AddChoices(_fps, [("30 FPS", 30), ("60 FPS", 60), ("90 FPS", 90), ("120 FPS", 120)], preferences.Fps);
         _format.Items.Add(new ComboBoxItem { Content = "MP4 · H.264 / AAC", Tag = "mp4" });
         _format.Items.Add(new ComboBoxItem { Content = "MKV · H.264 / AAC", Tag = "mkv" });
@@ -70,15 +92,15 @@ internal sealed class SettingsWindow : Window
         _auto.IsOn = preferences.AutoConnect;
         _keyboard.IsOn = preferences.PhysicalKeyboard; _clipboard.IsOn = preferences.SharedClipboard;
         foreach (var element in new Control[] { _resolution, _fps, _format, _bitrate, _audio, _external, _auto, _keyboard, _clipboard }) element.IsEnabled = !recording;
-        AddField(panel, "Разрешение · длинная сторона", _resolution);
-        AddField(panel, "Частота кадров", _fps);
-        AddField(panel, "Битрейт, Мбит/с", _bitrate);
-        AddField(panel, "Формат записи", _format);
+        AddField(panel, L.T("Разрешение · длинная сторона"), _resolution);
+        AddField(panel, L.T("Частота кадров"), _fps);
+        AddField(panel, L.T("Битрейт, Мбит/с"), _bitrate);
+        AddField(panel, L.T("Формат записи"), _format);
         panel.Children.Add(_audio); panel.Children.Add(_external); panel.Children.Add(_auto);
         panel.Children.Add(_keyboard); panel.Children.Add(_clipboard);
-        panel.Children.Add(new TextBlock { Text = "Щёлкните по экрану телефона перед печатью. Для русского ввода выберите русскую раскладку физической клавиатуры в Android (Alt+K). Ctrl+V вставляет текст с ПК.", FontSize = 12, Opacity = 0.65, TextWrapping = TextWrapping.Wrap });
-        panel.Children.Add(new TextBlock { Text = "Применение настроек и переключение записи ненадолго перезапускают трансляцию. Захват звука требует Android 11+; на Android 11 разблокируйте телефон.", FontSize = 12, Opacity = 0.65, TextWrapping = TextWrapping.Wrap });
-        var apply = new Button { Content = "Применить", HorizontalAlignment = HorizontalAlignment.Stretch, IsEnabled = !recording };
+        panel.Children.Add(new TextBlock { Text = L.T("Щёлкните по экрану телефона перед печатью. Для русского ввода выберите русскую раскладку физической клавиатуры в Android (Alt+K). Ctrl+V вставляет текст с ПК."), FontSize = 12, Opacity = 0.65, TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(new TextBlock { Text = L.T("Применение настроек и переключение записи ненадолго перезапускают трансляцию. Захват звука требует Android 11+; на Android 11 разблокируйте телефон."), FontSize = 12, Opacity = 0.65, TextWrapping = TextWrapping.Wrap });
+        var apply = new Button { Content = L.T("Применить"), HorizontalAlignment = HorizontalAlignment.Stretch, IsEnabled = !recording };
         apply.Click += async (_, _) =>
         {
             apply.IsEnabled = false;
@@ -95,7 +117,7 @@ internal sealed class SettingsWindow : Window
             finally { apply.IsEnabled = !recording; }
         };
         panel.Children.Add(apply);
-        var videos = new Button { Content = "Открыть видеозаписи", HorizontalAlignment = HorizontalAlignment.Stretch };
+        var videos = new Button { Content = L.T("Открыть видеозаписи"), HorizontalAlignment = HorizontalAlignment.Stretch };
         videos.Click += (_, _) => { try { WindowStyle.OpenFolder(MainWindow.Videos); } catch (Exception ex) { Log.Write(ex.ToString()); } };
         panel.Children.Add(videos);
         var root = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Background = (Brush)Application.Current.Resources["ApplicationPageBackgroundThemeBrush"] };
@@ -124,14 +146,14 @@ internal sealed class DeviceWindow : Window
 {
     private readonly ListView _list = new() { SelectionMode = ListViewSelectionMode.Single, DisplayMemberPath = "PickerLabel" };
     private readonly TextBlock _hint = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.65 };
-    private readonly Button _connect = new() { Content = "Подключить", HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly Button _connect = new() { Content = L.T("Подключить"), HorizontalAlignment = HorizontalAlignment.Stretch };
     private string _signature = "";
     private bool _connecting, _closed;
     private WifiWindow? _wifi;
     public Func<string, Task>? DeviceRequested { get; set; }
     public DeviceWindow(Window owner, AdbService adb)
     {
-        Title = "Выбор устройства";
+        Title = L.T("Выбор устройства");
         SystemBackdrop = new MicaBackdrop();
         WindowStyle.Own(this, owner, 420, 580);
         var root = new Grid { Padding = new Thickness(24), RowSpacing = 16, Background = (Brush)Application.Current.Resources["ApplicationPageBackgroundThemeBrush"] };
@@ -140,7 +162,7 @@ internal sealed class DeviceWindow : Window
         var header = new Grid { ColumnSpacing = 12 };
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        header.Children.Add(new TextBlock { Text = "Устройства", FontSize = 22, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+        header.Children.Add(new TextBlock { Text = L.T("Устройства"), FontSize = 22, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
         var wifi = new Button { Content = "Wi-Fi" };
         Grid.SetColumn(wifi, 1); header.Children.Add(wifi);
         wifi.Click += (_, _) =>
@@ -184,7 +206,7 @@ internal sealed class DeviceWindow : Window
             _list.ItemsSource = devices;
             _list.SelectedItem = devices.FirstOrDefault(x => x.Serial == selected) ?? devices.FirstOrDefault();
         }
-        _hint.Text = devices.Count == 0 ? "Подключите телефон по USB или добавьте его по Wi-Fi. Список обновляется автоматически." : "Выберите телефон · USB или Wi-Fi";
+        _hint.Text = devices.Count == 0 ? L.T("Подключите телефон по USB или добавьте его по Wi-Fi. Список обновляется автоматически.") : L.T("Выберите телефон · USB или Wi-Fi");
         _connect.IsEnabled = !_connecting && _list.SelectedItem != null;
     }
 }
@@ -192,38 +214,38 @@ internal sealed class DeviceWindow : Window
 internal sealed class WifiWindow : Window
 {
     private readonly AdbService _adb;
-    private readonly TextBox _address = new() { Header = "Адрес подключения · IP:порт", PlaceholderText = "192.168.0.10:37001" };
-    private readonly TextBox _pairAddress = new() { Header = "Адрес сопряжения · IP:порт", PlaceholderText = "192.168.0.10:40001" };
-    private readonly PasswordBox _code = new() { Header = "Код сопряжения", MaxLength = 6 };
-    private readonly ComboBox _discovered = new() { Header = "Найдено в сети", PlaceholderText = "Выберите адрес", HorizontalAlignment = HorizontalAlignment.Stretch };
-    private readonly Button _refresh = new() { Content = "Обновить", VerticalAlignment = VerticalAlignment.Bottom };
-    private readonly Button _connect = new() { Content = "Добавить устройство", HorizontalAlignment = HorizontalAlignment.Stretch };
-    private readonly Button _pair = new() { Content = "Выполнить сопряжение", HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly TextBox _address = new() { Header = L.T("Адрес подключения · IP:порт"), PlaceholderText = "192.168.0.10:37001" };
+    private readonly TextBox _pairAddress = new() { Header = L.T("Адрес сопряжения · IP:порт"), PlaceholderText = "192.168.0.10:40001" };
+    private readonly PasswordBox _code = new() { Header = L.T("Код сопряжения"), MaxLength = 6 };
+    private readonly ComboBox _discovered = new() { Header = L.T("Найдено в сети"), PlaceholderText = L.T("Выберите адрес"), HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly Button _refresh = new() { Content = L.T("Обновить"), VerticalAlignment = VerticalAlignment.Bottom };
+    private readonly Button _connect = new() { Content = L.T("Добавить устройство"), HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly Button _pair = new() { Content = L.T("Выполнить сопряжение"), HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.75 };
     private bool _busy, _closed;
     public Func<string, Task>? Connected { get; set; }
     public WifiWindow(Window owner, AdbService adb)
     {
         _adb = adb;
-        Title = "Подключение по Wi-Fi";
+        Title = L.T("Подключение по Wi-Fi");
         SystemBackdrop = new MicaBackdrop();
         WindowStyle.Own(this, owner, 450, 860);
         var root = new Grid { Padding = new Thickness(24), RowSpacing = 16, Background = (Brush)Application.Current.Resources["ApplicationPageBackgroundThemeBrush"] };
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         var panel = new StackPanel { Spacing = 16 };
-        panel.Children.Add(new TextBlock { Text = "Подключение по Wi-Fi", FontSize = 22, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        panel.Children.Add(new TextBlock { Text = "Android 11+ · Компьютер и телефон должны быть в одной сети. На телефоне откройте «Для разработчиков → Беспроводная отладка» и включите её.", TextWrapping = TextWrapping.Wrap, Opacity = 0.7 });
+        panel.Children.Add(new TextBlock { Text = L.T("Подключение по Wi-Fi"), FontSize = 22, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        panel.Children.Add(new TextBlock { Text = L.T("Android 11+ · Компьютер и телефон должны быть в одной сети. На телефоне откройте «Для разработчиков → Беспроводная отладка» и включите её."), TextWrapping = TextWrapping.Wrap, Opacity = 0.7 });
         var discovery = new Grid { ColumnSpacing = 8 };
         discovery.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         discovery.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         discovery.Children.Add(_discovered); Grid.SetColumn(_refresh, 1); discovery.Children.Add(_refresh);
         panel.Children.Add(discovery); panel.Children.Add(_address);
-        panel.Children.Add(new TextBlock { Text = "Используйте IP и порт с главного экрана беспроводной отладки. После первого сопряжения достаточно добавить устройство.", TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.65 });
+        panel.Children.Add(new TextBlock { Text = L.T("Используйте IP и порт с главного экрана беспроводной отладки. После первого сопряжения достаточно добавить устройство."), TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.65 });
         var pairing = new StackPanel { Spacing = 12, Margin = new Thickness(0, 12, 0, 0) };
-        pairing.Children.Add(new TextBlock { Text = "На телефоне выберите «Сопряжение с помощью кода». Введите адрес и код из открывшегося окна. Порт сопряжения отличается от порта подключения.", TextWrapping = TextWrapping.Wrap, FontSize = 12 });
+        pairing.Children.Add(new TextBlock { Text = L.T("На телефоне выберите «Сопряжение с помощью кода». Введите адрес и код из открывшегося окна. Порт сопряжения отличается от порта подключения."), TextWrapping = TextWrapping.Wrap, FontSize = 12 });
         pairing.Children.Add(_pairAddress); pairing.Children.Add(_code); pairing.Children.Add(_pair);
-        var expander = new Expander { Header = "Первое подключение · сопряжение", Content = pairing, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+        var expander = new Expander { Header = L.T("Первое подключение · сопряжение"), Content = pairing, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
         panel.Children.Add(expander); panel.Children.Add(_status);
         root.Children.Add(new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
         Grid.SetRow(_connect, 1); root.Children.Add(_connect);
@@ -234,7 +256,7 @@ internal sealed class WifiWindow : Window
             await _adb.PairWifiAsync(_pairAddress.Text, _code.Password);
             _code.Password = "";
             try { await RefreshAsync(); } catch { /* A successful pairing does not depend on mDNS. */ }
-            _status.Text = "Сопряжение выполнено. Проверьте адрес подключения и нажмите «Добавить устройство».";
+            _status.Text = L.T("Сопряжение выполнено. Проверьте адрес подключения и нажмите «Добавить устройство».");
         });
         _connect.Click += async (_, _) => await PerformAsync(async () =>
         {
@@ -255,15 +277,15 @@ internal sealed class WifiWindow : Window
         _discovered.ItemsSource = addresses;
         if (addresses.Contains(selected)) _discovered.SelectedItem = selected;
         else if (addresses.Count == 1 && string.IsNullOrWhiteSpace(selected)) _discovered.SelectedItem = addresses[0];
-        _status.Text = addresses.Count == 0 ? "Автопоиск не нашёл устройств. Можно ввести адрес с телефона вручную." : "Найден адрес беспроводной отладки. При первом подключении выполните сопряжение.";
+        _status.Text = addresses.Count == 0 ? L.T("Автопоиск не нашёл устройств. Можно ввести адрес с телефона вручную.") : L.T("Найден адрес беспроводной отладки. При первом подключении выполните сопряжение.");
     }
     private async Task PerformAsync(Func<Task> operation)
     {
         if (_busy || _closed) return;
-        _busy = true; SetEnabled(false); _status.Text = "Подождите…";
+        _busy = true; SetEnabled(false); _status.Text = L.T("Подождите…");
         try { await operation(); }
-        catch (OperationCanceledException) { if (!_closed) _status.Text = "Телефон не ответил. Проверьте сеть и адрес и попробуйте снова."; }
-        catch (Exception ex) { if (!_closed) _status.Text = string.IsNullOrWhiteSpace(ex.Message) ? "Не удалось подключиться. Проверьте адрес, код и сеть." : ex.Message; }
+        catch (OperationCanceledException) { if (!_closed) _status.Text = L.T("Телефон не ответил. Проверьте сеть и адрес и попробуйте снова."); }
+        catch (Exception ex) { if (!_closed) _status.Text = string.IsNullOrWhiteSpace(ex.Message) ? L.T("Не удалось подключиться. Проверьте адрес, код и сеть.") : ex.Message; }
         finally { _busy = false; if (!_closed) SetEnabled(true); }
     }
     private void SetEnabled(bool enabled)
@@ -277,7 +299,7 @@ internal sealed class NotificationWindow : Window
     private readonly DispatcherTimer _timer = new();
     public NotificationWindow(Window owner, string title, string message, string? path, bool error)
     {
-        Title = "Уведомление";
+        Title = L.T("Уведомление");
         var width = error ? 330 : 276;
         var height = error ? 94 : 54;
         WindowStyle.Own(this, owner, width, height);
@@ -304,8 +326,8 @@ internal sealed class NotificationWindow : Window
         if (path != null)
         {
             var open = new Button { Content = new FontIcon { Glyph = "\uE8A7", FontSize = 13 }, Padding = new Thickness(4), MinWidth = 24, MinHeight = 24, BorderThickness = new Thickness(0), Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), VerticalAlignment = VerticalAlignment.Center };
-            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(open, "Показать файл");
-            ToolTipService.SetToolTip(open, "Показать файл · " + message);
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(open, L.T("Показать файл"));
+            ToolTipService.SetToolTip(open, L.T("Показать файл · ") + message);
             open.Click += (_, _) =>
             {
                 try

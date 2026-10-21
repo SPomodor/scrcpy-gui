@@ -1,5 +1,28 @@
 using AndroidDesk;
 
+if (args is ["--language"])
+{
+    foreach (var (preference, system, expected) in new[] { ("system", "ru-RU", "ru"), ("system", "ru-KZ", "ru"), ("system", "en-US", "en"), ("system", "de-DE", "en"), ("en", "ru-RU", "en"), ("ru", "en-US", "ru"), ("unknown", "ru-RU", "ru") })
+        if (L.Resolve(preference, system) != expected) throw new Exception("System language resolution failed.");
+    var legacy = System.Text.Json.JsonSerializer.Deserialize<Preferences>("{\"MaxSize\":960}")!;
+    if (legacy.Language != "system" || legacy.Copy().Language != "system") throw new Exception("Legacy preference migration failed.");
+    L.Set("en");
+    if (L.T("Настройки") != "Settings" || L.F("{0} · код завершения {1} · {2}", "User command", 7, "serial") != "User command · exit code 7 · serial") throw new Exception("English translation failed.");
+    if (L.Label("Настройки") != "Settings") throw new Exception("Live label translation failed.");
+    L.Set("ru");
+    if (L.Label("Settings") != "Настройки" || L.T("Настройки") != "Настройки") throw new Exception("Russian reverse translation failed.");
+    using var resources = typeof(L).Assembly.GetManifestResourceStream("AndroidDesk.Strings.en.json")!;
+    var translations = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(resources)!;
+    foreach (var (key, value) in translations)
+    {
+        if (string.IsNullOrWhiteSpace(value)) throw new Exception("Empty translation: " + key);
+        var formatTokens = System.Text.RegularExpressions.Regex.Matches(key, @"\{\d+\}").Select(x => x.Value).Order().ToArray();
+        var translatedTokens = System.Text.RegularExpressions.Regex.Matches(value, @"\{\d+\}").Select(x => x.Value).Order().ToArray();
+        if (!formatTokens.SequenceEqual(translatedTokens)) throw new Exception("Format tokens changed: " + key);
+    }
+    Console.WriteLine($"Language detection, manual overrides, live labels, legacy preferences and {translations.Count} translations passed.");
+    return 0;
+}
 if (args.Length == 2 && args[0] == "--commands")
 {
     var parsed = CommandRunner.Parse("adb shell printf '%s' 'hello world'");

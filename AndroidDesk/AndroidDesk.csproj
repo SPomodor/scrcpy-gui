@@ -17,6 +17,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="Strings.en.json" LogicalName="AndroidDesk.Strings.en.json" WithCulture="false" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
     <Content Include="..\scrcpy\**\*" Link="scrcpy\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>

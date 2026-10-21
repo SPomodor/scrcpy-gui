@@ -4,6 +4,8 @@
     <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="..\AndroidDesk\Localization.cs" Link="Localization.cs"/>
+    <EmbeddedResource Include="..\AndroidDesk\Strings.en.json" LogicalName="AndroidDesk.Strings.en.json" WithCulture="false" />
     <Compile Include="..\AndroidDesk\QuickCommands.cs" Link="QuickCommands.cs"/>
     <Compile Include="..\AndroidDesk\Services.cs" Link="Services.cs"/>
     <Compile Include="..\AndroidDesk\Native.cs" Link="Native.cs"/>
