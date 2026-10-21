@@ -1,7 +1,11 @@
 using System.Diagnostics;
+using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Windowing;
 using Windows.Foundation;
 using Windows.Graphics;
 
@@ -11,18 +15,22 @@ public sealed partial class MainWindow : Window
 {
     private readonly AdbService _adb = new();
     private readonly ScrcpySession _session = new();
-    private readonly Preferences _preferences = Preferences.Load();
+    private Preferences _preferences = Preferences.Load();
     private readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly DispatcherTimer _clock = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly SemaphoreSlim _operation = new(1, 1);
     private readonly nint _hwnd;
-    private bool _polling, _busy, _closing, _allowClose, _updatingDevices, _userStopped;
-    private bool _initializing = true;
-    private string? _serial, _failedSerial;
+    private bool _polling, _busy, _closing, _allowClose, _userStopped;
+    private string? _serial, _selectedSerial, _failedSerial;
+    private string? _fittedSerial;
+    private IReadOnlyList<Device> _devices = [];
     private DateTime _recordStarted;
-    private string? _lastMedia;
-    private string _deviceSignature = "";
-    private static string Videos => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "AndroidDesk");
+    private double _aspect = 0.45;
+    private SettingsWindow? _settings;
+    private DeviceWindow? _devicePicker;
+    private NotificationWindow? _notification;
+    private string? _lastError;
+    internal static string Videos => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "AndroidDesk");
 
     public MainWindow()
     {
@@ -30,35 +38,29 @@ public sealed partial class MainWindow : Window
         Title = "Android Desk";
         SystemBackdrop = new MicaBackdrop();
         _hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-        AppWindow.Resize(new SizeInt32(1180, 860));
+        FitToPhone();
         AppWindow.Closing += async (_, e) =>
         {
             if (_allowClose) return;
             e.Cancel = true;
             if (_closing) return;
             _closing = true;
-            _poll.Stop();
-            _clock.Stop();
-            await ExecuteAsync(async () => { await StopAsync(); });
+            _poll.Stop(); _clock.Stop();
+            _settings?.Close(); _devicePicker?.Close(); _notification?.Close();
+            await ExecuteAsync(async () => await StopAsync());
             _allowClose = true;
             Close();
         };
-        SetChoice(Resolution, _preferences.MaxSize);
-        SetChoice(FrameRate, _preferences.Fps);
-        Bitrate.Value = Math.Clamp(_preferences.Bitrate, 1, 64);
-        ExternalWindow.IsOn = _preferences.External;
-        AutoConnect.IsOn = _preferences.AutoConnect;
-        _initializing = false;
-        Root.ActualThemeChanged += (_, _) => UpdateTitleBar();
+        Root.ActualThemeChanged += (_, _) => WindowStyle.Apply(this, Root);
         Root.Loaded += async (_, _) =>
         {
-            UpdateTitleBar();
+            WindowStyle.Apply(this, Root);
             Root.XamlRoot.Changed += (_, _) => PositionScreen();
             _poll.Start();
             await PollAsync();
         };
         _poll.Tick += async (_, _) => await PollAsync();
-        _clock.Tick += (_, _) => RecordTime.Text = $"● REC  {DateTime.Now - _recordStarted:mm\\:ss}";
+        _clock.Tick += (_, _) => RecordTime.Text = $"{DateTime.Now - _recordStarted:mm\\:ss}";
         _session.Exited += () => DispatcherQueue.TryEnqueue(() =>
         {
             if (!_busy && !_closing) _ = ExecuteAsync(async () =>
@@ -66,36 +68,10 @@ public sealed partial class MainWindow : Window
                 _failedSerial = _serial;
                 var recording = _session.RecordingPath;
                 await StopAsync();
-                Status.Text = recording == null ? "Трансляция завершена. Нажмите «Подключить» для запуска." : "Запись завершена: " + recording;
+                if (recording == null) Notify("Трансляция завершена", "Нажмите кнопку подключения для повторного запуска.");
             });
         });
         UpdateControls();
-    }
-    private void UpdateTitleBar()
-    {
-        var dark = Root.ActualTheme == ElementTheme.Dark;
-        var background = dark ? Windows.UI.Color.FromArgb(255, 32, 32, 32) : Windows.UI.Color.FromArgb(255, 243, 243, 243);
-        var foreground = dark ? Windows.UI.Color.FromArgb(255, 245, 245, 245) : Windows.UI.Color.FromArgb(255, 25, 25, 25);
-        AppWindow.TitleBar.BackgroundColor = background;
-        AppWindow.TitleBar.ForegroundColor = foreground;
-        AppWindow.TitleBar.ButtonBackgroundColor = background;
-        AppWindow.TitleBar.ButtonForegroundColor = foreground;
-        AppWindow.TitleBar.InactiveBackgroundColor = background;
-        AppWindow.TitleBar.ButtonInactiveBackgroundColor = background;
-    }
-    private static void SetChoice(ComboBox box, int value)
-    {
-        foreach (ComboBoxItem item in box.Items) if (int.Parse((string)item.Tag) == value) { box.SelectedItem = item; return; }
-    }
-    private void ReadPreferences()
-    {
-        _preferences.MaxSize = int.Parse((string)((ComboBoxItem)Resolution.SelectedItem).Tag);
-        _preferences.Fps = int.Parse((string)((ComboBoxItem)FrameRate.SelectedItem).Tag);
-        _preferences.Bitrate = double.IsFinite(Bitrate.Value) ? (int)Math.Clamp(Math.Round(Bitrate.Value), 1, 64) : 8;
-        Bitrate.Value = _preferences.Bitrate;
-        _preferences.External = ExternalWindow.IsOn;
-        _preferences.AutoConnect = AutoConnect.IsOn;
-        _preferences.Save();
     }
     private async Task ExecuteAsync(Func<Task> action)
     {
@@ -103,7 +79,12 @@ public sealed partial class MainWindow : Window
         _busy = true;
         UpdateControls();
         try { await action(); }
-        catch (Exception ex) { Status.Text = "Ошибка: " + ex.Message; Log.Write(ex.ToString()); }
+        catch (Exception ex)
+        {
+            Log.Write(ex.ToString());
+            if (!_session.Running) { EmptyTitle.Text = "Не удалось подключиться"; EmptyHint.Text = ex.Message; }
+            if (!_closing) Notify("Ошибка", ex.Message, error: true);
+        }
         finally { _busy = false; UpdateControls(); _operation.Release(); }
     }
     private async Task PollAsync()
@@ -114,53 +95,75 @@ public sealed partial class MainWindow : Window
         {
             var devices = await _adb.DevicesAsync();
             if (_closing || _busy) return;
-            var ready = devices.Where(x => x.State == "device").ToList();
-            var signature = string.Join('|', ready.Select(x => x.Serial + x.Model));
-            if (signature != _deviceSignature)
-            {
-                var selected = (Devices.SelectedItem as Device)?.Serial;
-                _deviceSignature = signature;
-                _updatingDevices = true;
-                Devices.ItemsSource = ready;
-                Devices.SelectedItem = ready.FirstOrDefault(x => x.Serial == selected) ?? ready.FirstOrDefault();
-                _updatingDevices = false;
-            }
-            if (_serial != null && !ready.Any(x => x.Serial == _serial))
-            {
-                await ExecuteAsync(async () => { await StopAsync(); Status.Text = "Телефон отключён. Ожидаем повторное подключение…"; });
-                _userStopped = false;
-            }
-            if (_failedSerial != null && !ready.Any(x => x.Serial == _failedSerial)) _failedSerial = null;
-            if (ready.Count == 0)
-            {
-                Status.Text = devices.Any(x => x.State == "unauthorized") ? "Разрешите USB-отладку на экране телефона." : devices.Any(x => x.State == "offline") ? "Телефон offline. Проверьте кабель или Wi-Fi." : "Телефон не найден. Включите USB-отладку и подключите устройство.";
-            }
-            else if (!_session.Running && !_userStopped && AutoConnect.IsOn && Devices.SelectedItem is Device device && _failedSerial != device.Serial)
+            _devices = devices.Where(x => x.State == "device").ToList();
+            _devicePicker?.UpdateDevices(_devices, _serial ?? _selectedSerial);
+            if (_selectedSerial == null || !_devices.Any(x => x.Serial == _selectedSerial)) _selectedSerial = _devices.FirstOrDefault()?.Serial;
+            if (_serial != null && !_devices.Any(x => x.Serial == _serial))
             {
                 await ExecuteAsync(async () =>
                 {
-                    try { ReadPreferences(); await StartAsync(device.Serial); }
-                    catch { _failedSerial = device.Serial; throw; }
+                    try { await StopAsync(); }
+                    finally { _userStopped = false; }
+                    Notify("Телефон отключён", "Ждём повторного подключения.");
                 });
             }
+            if (_failedSerial != null && !_devices.Any(x => x.Serial == _failedSerial)) _failedSerial = null;
+            if (_devices.Count == 0 && !_session.Running)
+            {
+                EmptyTitle.Text = "Подключите телефон";
+                EmptyHint.Text = devices.Any(x => x.State == "unauthorized") ? "Разрешите USB-отладку на экране телефона." : devices.Any(x => x.State == "offline") ? "Телефон offline. Проверьте USB-кабель или Wi-Fi." : "Включите USB-отладку и разрешите подключение. Выбор телефона — кнопка справа.";
+            }
+            else if (!_session.Running && !_userStopped && _preferences.AutoConnect && _selectedSerial is string serial && _failedSerial != serial)
+            {
+                await ExecuteAsync(async () =>
+                {
+                    try { await StartAsync(serial); }
+                    catch { _failedSerial = serial; throw; }
+                });
+            }
+            _lastError = null;
             UpdateControls();
         }
-        catch (Exception ex) { Status.Text = "ADB: " + ex.Message; Log.Write(ex.ToString()); }
+        catch (Exception ex)
+        {
+            Log.Write(ex.ToString());
+            EmptyHint.Text = "ADB: " + ex.Message;
+            if (_lastError != ex.Message) { _lastError = ex.Message; Notify("Ошибка ADB", ex.Message, error: true); }
+        }
         finally { _polling = false; }
     }
     private async Task StartAsync(string serial, string? recording = null)
     {
-        Status.Text = "Подключаем экран…";
         _serial = serial;
+        _selectedSerial = serial;
+        EmptyTitle.Text = "Подключаем экран…";
         try
         {
             await _session.StartAsync(_adb, serial, _preferences, recording);
-            if (!_preferences.External) { Native.Embed(_session.Window, _hwnd); PositionScreen(); }
+            if (!_preferences.External)
+            {
+                Native.Embed(_session.Window, _hwnd);
+                PositionScreen();
+            }
             EmptyTitle.Text = "Экран в отдельном окне";
-            EmptyHint.Text = "Управляйте телефоном в окне scrcpy. Кнопки и запись доступны справа.";
+            EmptyHint.Text = "Чтобы вернуть экран сюда, выключите отдельное окно в настройках ⋯.";
             EmptyState.Visibility = _preferences.External ? Visibility.Visible : Visibility.Collapsed;
-            if (recording != null) { _recordStarted = DateTime.Now; _clock.Start(); }
-            Status.Text = $"{serial} · H.264 · до {_preferences.Fps} FPS · {_preferences.Bitrate} Мбит/с";
+            if (recording != null) { _recordStarted = DateTime.Now; RecordTime.Text = "00:00"; _clock.Start(); }
+            try
+            {
+                var size = Encoding.UTF8.GetString(await _adb.RunAsync(["-s", serial, "shell", "wm", "size"]));
+                var matches = Regex.Matches(size, @"(\d+)x(\d+)");
+                if (matches.Count > 0 && double.TryParse(matches[^1].Groups[1].Value, out var width) && double.TryParse(matches[^1].Groups[2].Value, out var height) && height > 0)
+                {
+                    _aspect = width / height;
+                    if (!_preferences.External && _fittedSerial != serial)
+                    {
+                        _fittedSerial = serial;
+                        FitToPhone();
+                    }
+                }
+            }
+            catch (Exception ex) { Log.Write("Screen dimensions: " + ex.Message); }
         }
         catch
         {
@@ -170,16 +173,27 @@ public sealed partial class MainWindow : Window
     }
     private async Task StopAsync()
     {
-        try { await _session.StopAsync(); }
+        var recording = _session.RecordingPath;
+        try
+        {
+            await _session.StopAsync();
+            if (recording != null && !_closing) NotifySaved("Запись сохранена", recording);
+        }
         finally
         {
-            _serial = null;
-            _clock.Stop();
-            RecordTime.Text = "MKV · без звука";
+            _serial = null; _clock.Stop();
             EmptyState.Visibility = Visibility.Visible;
-            EmptyTitle.Text = "Телефон на вашем компьютере";
-            EmptyHint.Text = "Выберите устройство и нажмите «Подключить». Для ввода мышью и клавиатурой щёлкните по экрану телефона.";
+            EmptyTitle.Text = "Трансляция остановлена";
+            EmptyHint.Text = "Подключиться — кнопка справа. Выбрать телефон — значок телефона.";
         }
+    }
+    private void FitToPhone()
+    {
+        var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
+        var height = area.Height;
+        var width = Math.Clamp((int)Math.Round((height - 32) * _aspect) + 60, 320, area.Width);
+        if (AppWindow.Presenter is OverlappedPresenter presenter) presenter.Restore();
+        AppWindow.MoveAndResize(new RectInt32(area.X + (area.Width - width) / 2, area.Y, width, height));
     }
     private void PositionScreen()
     {
@@ -191,51 +205,55 @@ public sealed partial class MainWindow : Window
     private void UpdateControls()
     {
         BusyRing.IsActive = _busy;
-        ConnectButton.IsEnabled = !_busy && (_session.Running || Devices.SelectedItem != null);
-        ConnectButton.Content = _session.Running ? "Отключить" : "Подключить";
-        SetEnabled(PhoneControls, !_busy && _session.Running);
+        BusyRing.Visibility = _busy ? Visibility.Visible : Visibility.Collapsed;
+        ConnectButton.IsEnabled = !_busy && (_session.Running || _selectedSerial != null);
+        ToolTipService.SetToolTip(ConnectButton, _session.Running ? "Отключить" : "Подключить");
+        foreach (var button in PhoneControls.Children.OfType<Button>()) button.IsEnabled = !_busy && _session.Running;
         RecordButton.IsEnabled = !_busy && _session.Running;
-        RecordLabel.Text = _session.RecordingPath == null ? "Начать запись" : "Остановить запись";
-        RecordIcon.Glyph = _session.RecordingPath == null ? "\uE7C8" : "\uE71A";
-        SetEnabled(QualityControls, !_busy && _session.RecordingPath == null);
-        Devices.IsEnabled = !_busy && !_session.Running;
+        var recording = _session.RecordingPath != null;
+        RecordButton.Content = recording ? "\uE71A" : "\uE7C8";
+        AutomationProperties.SetName(RecordButton, recording ? "Остановить запись" : "Начать запись");
+        ToolTipService.SetToolTip(RecordButton, recording ? "Остановить запись" : $"Запись {_preferences.RecordingFormat.ToUpperInvariant()}" + (_preferences.RecordAudio ? " со звуком" : " без звука"));
+        RecordTime.Visibility = recording ? Visibility.Visible : Visibility.Collapsed;
+        DeviceButton.IsEnabled = !_busy;
+        SettingsButton.IsEnabled = !_busy;
+        ToolTipService.SetToolTip(DeviceButton, "Выбрать телефон" + (_serial == null ? "" : " · " + _serial));
     }
-    private static void SetEnabled(DependencyObject parent, bool enabled)
+    private void NotifySaved(string title, string path) => Notify(title, Path.GetFileName(path), path);
+    private void Notify(string title, string message, string? path = null, bool error = false)
     {
-        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
-        {
-            var child = VisualTreeHelper.GetChild(parent, index);
-            if (child is Control control) control.IsEnabled = enabled;
-            else SetEnabled(child, enabled);
-        }
+        if (_closing) return;
+        _notification?.Close();
+        var window = new NotificationWindow(this, title, message, path, error);
+        _notification = window;
+        window.Closed += (_, _) => { if (_notification == window) _notification = null; };
+        window.ShowWithoutFocus();
     }
     private async void ConnectClick(object sender, RoutedEventArgs e) => await ExecuteAsync(async () =>
     {
-        if (_session.Running) { _userStopped = true; await StopAsync(); Status.Text = "Трансляция остановлена."; }
-        else if (Devices.SelectedItem is Device device) { _userStopped = false; _failedSerial = null; ReadPreferences(); await StartAsync(device.Serial); }
-    });
-    private async void ApplyClick(object sender, RoutedEventArgs e) => await ExecuteAsync(async () =>
-    {
-        var serial = _serial;
-        ReadPreferences();
-        if (_session.Running && serial != null) { await StopAsync(); await StartAsync(serial); }
-        else Status.Text = "Настройки сохранены.";
+        if (_session.Running) { _userStopped = true; await StopAsync(); }
+        else if (_selectedSerial is string serial) { _userStopped = false; _failedSerial = null; await StartAsync(serial); }
     });
     private async void RecordClick(object sender, RoutedEventArgs e) => await ExecuteAsync(async () =>
     {
         if (_serial == null || !_session.Running) return;
         var serial = _serial;
-        var oldRecording = _session.RecordingPath;
+        var wasRecording = _session.RecordingPath != null;
         string? next = null;
-        if (oldRecording == null)
+        if (!wasRecording)
         {
             Directory.CreateDirectory(Videos);
-            next = Path.Combine(Videos, $"Recording_{DateTime.Now:yyyy-MM-dd_HH-mm-ss-fff}.mkv");
+            var extension = _preferences.RecordingFormat == "mkv" ? "mkv" : "mp4";
+            next = Path.Combine(Videos, $"Recording_{DateTime.Now:yyyy-MM-dd_HH-mm-ss-fff}.{extension}");
         }
         await StopAsync();
-        if (oldRecording != null) _lastMedia = oldRecording;
-        await StartAsync(serial, next);
-        if (oldRecording != null) Status.Text = "Запись сохранена: " + oldRecording;
+        try { await StartAsync(serial, next); }
+        catch when (next != null)
+        {
+            // A failed audio encoder must not leave the phone disconnected or silently record without audio.
+            await StartAsync(serial);
+            throw new IOException("Не удалось начать запись. Трансляция восстановлена. Если Android не поддерживает захват звука, выключите звук записи в настройках. Подробности — в локальном журнале.");
+        }
     });
     private async void KeyClick(object sender, RoutedEventArgs e) => await ExecuteAsync(async () =>
     {
@@ -243,16 +261,50 @@ public sealed partial class MainWindow : Window
     });
     private async void ScreenshotClick(object sender, RoutedEventArgs e) => await ExecuteAsync(async () =>
     {
-        if (_serial != null) { _lastMedia = await _adb.ScreenshotAsync(_serial); Status.Text = "Скриншот сохранён: " + _lastMedia; }
+        if (_serial != null) NotifySaved("Скриншот сохранён", await _adb.ScreenshotAsync(_serial));
     });
     private void ViewportChanged(object sender, SizeChangedEventArgs e) => PositionScreen();
-    private void DeviceChanged(object sender, SelectionChangedEventArgs e) { if (!_updatingDevices) { _userStopped = false; _failedSerial = null; } }
-    private void AutoConnectChanged(object sender, RoutedEventArgs e)
+    private void FitClick(object sender, RoutedEventArgs e) => FitToPhone();
+    private void SettingsClick(object sender, RoutedEventArgs e)
     {
-        if (_initializing || AutoConnect == null) return;
-        _preferences.AutoConnect = AutoConnect.IsOn;
-        if (AutoConnect.IsOn) { _userStopped = false; _failedSerial = null; }
+        if (_settings != null) { _settings.Activate(); return; }
+        var window = new SettingsWindow(this, _preferences.Copy(), _session.RecordingPath != null);
+        _settings = window;
+        window.Closed += (_, _) => { if (_settings == window) _settings = null; };
+        window.ApplyRequested = async preferences =>
+        {
+            var applied = false;
+            await ExecuteAsync(async () =>
+            {
+                if (_session.RecordingPath != null) { Notify("Идёт запись", "Остановите запись перед изменением настроек."); return; }
+                var serial = _serial;
+                preferences.Save();
+                _preferences = preferences;
+                if (preferences.AutoConnect) { _userStopped = false; _failedSerial = null; }
+                if (_session.Running && serial != null) { await StopAsync(); await StartAsync(serial); }
+                applied = true;
+            });
+            return applied;
+        };
+        window.Activate();
     }
-    private async void OpenVideosClick(object sender, RoutedEventArgs e) => await ExecuteAsync(() => { Directory.CreateDirectory(Videos); Process.Start(new ProcessStartInfo(Videos) { UseShellExecute = true }); return Task.CompletedTask; });
-    private async void OpenLogClick(object sender, RoutedEventArgs e) => await ExecuteAsync(() => { Directory.CreateDirectory(Log.Folder); Process.Start(new ProcessStartInfo(Log.Folder) { UseShellExecute = true }); return Task.CompletedTask; });
+    private void DeviceClick(object sender, RoutedEventArgs e)
+    {
+        if (_devicePicker != null) { _devicePicker.Activate(); return; }
+        var window = new DeviceWindow(this);
+        _devicePicker = window;
+        window.UpdateDevices(_devices, _serial ?? _selectedSerial);
+        window.Closed += (_, _) => { if (_devicePicker == window) _devicePicker = null; };
+        window.DeviceRequested = async serial =>
+        {
+            await ExecuteAsync(async () =>
+            {
+                if (_serial == serial && _session.Running) return;
+                _userStopped = false; _failedSerial = null; _selectedSerial = serial;
+                await StopAsync();
+                await StartAsync(serial);
+            });
+        };
+        window.Activate();
+    }
 }

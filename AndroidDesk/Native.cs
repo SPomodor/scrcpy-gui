@@ -16,6 +16,7 @@ internal static class Native
     [DllImport("user32.dll", SetLastError = true)] internal static extern bool SetWindowPos(nint window, nint after, int x, int y, int width, int height, uint flags);
     [DllImport("user32.dll")] internal static extern bool ShowWindow(nint window, int command);
     [DllImport("user32.dll")] internal static extern bool PostMessage(nint window, uint message, nint wParam, nint lParam);
+    internal static void Own(nint window, nint owner) => SetStyle(window, -8, owner);
     internal static nint FindWindow(int process)
     {
         nint result = 0;
