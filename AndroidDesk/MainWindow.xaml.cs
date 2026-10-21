@@ -16,7 +16,7 @@ namespace AndroidDesk;
 public sealed partial class MainWindow : Window
 {
     private readonly AdbService _adb = new();
-    private readonly ScrcpySession _session = new();
+    private ScrcpySession _session = new();
     private Preferences _preferences = Preferences.Load();
     private readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly DispatcherTimer _clock = new() { Interval = TimeSpan.FromSeconds(1) };
@@ -43,7 +43,7 @@ public sealed partial class MainWindow : Window
         Title = "Android Desk";
         SystemBackdrop = new MicaBackdrop();
         _hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-        FitToPhone();
+        SetInitialSize();
         AppWindow.Closing += async (_, e) =>
         {
             if (_allowClose) return;
@@ -66,9 +66,14 @@ public sealed partial class MainWindow : Window
         };
         _poll.Tick += async (_, _) => await PollAsync();
         _clock.Tick += (_, _) => RecordTime.Text = $"{DateTime.Now - _recordStarted:mm\\:ss}";
-        _session.Exited += () => DispatcherQueue.TryEnqueue(() =>
+        ObserveSession(_session);
+        UpdateControls();
+    }
+    private void ObserveSession(ScrcpySession session)
+    {
+        session.Exited += () => DispatcherQueue.TryEnqueue(() =>
         {
-            if (!_busy && !_closing) _ = ExecuteAsync(async () =>
+            if (ReferenceEquals(session, _session) && !_busy && !_closing) _ = ExecuteAsync(async () =>
             {
                 _failedSerial = _serial;
                 var recording = _session.RecordingPath;
@@ -76,7 +81,6 @@ public sealed partial class MainWindow : Window
                 if (recording == null) Notify("Трансляция завершена", "Нажмите кнопку подключения для повторного запуска.");
             });
         });
-        UpdateControls();
     }
     private async Task ExecuteAsync(Func<Task> action)
     {
@@ -185,6 +189,43 @@ public sealed partial class MainWindow : Window
             throw;
         }
     }
+    private async Task ReplaceSessionAsync(string serial, string? recording = null)
+    {
+        var previous = _session;
+        var replacement = new ScrcpySession();
+        var previousRecording = previous.RecordingPath;
+        try
+        {
+            // The old renderer remains visible and interactive until the replacement has video.
+            await replacement.StartAsync(_adb, serial, _preferences, recording, window =>
+            {
+                if (_preferences.External) return;
+                Native.Embed(window, _hwnd);
+                var scale = Root.XamlRoot?.RasterizationScale ?? 1;
+                Native.SetWindowPos(window, 0, -32000, 0, Math.Max(1, (int)Math.Round(Viewport.ActualWidth * scale)), Math.Max(1, (int)Math.Round(Viewport.ActualHeight * scale)), 0x0010 | 0x0040 | 0x0020);
+            });
+        }
+        catch
+        {
+            try { await replacement.StopAsync(); } catch (Exception ex) { Log.Write(ex.ToString()); }
+            throw; // Keep the previous stream (and recording, if any) intact.
+        }
+        _session = replacement;
+        ObserveSession(replacement);
+        _serial = _selectedSerial = serial;
+        _frameReady = true;
+        // Render in the final rectangle behind the old HWND before changing z-order.
+        PositionScreen(Native.GetParent(previous.Window) == _hwnd ? previous.Window : 0);
+        await Task.Delay(120);
+        PositionScreen();
+        FrozenFrame.Visibility = Visibility.Collapsed;
+        EmptyState.Visibility = _preferences.External ? Visibility.Visible : Visibility.Collapsed;
+        _clock.Stop();
+        if (recording != null) { _recordStarted = DateTime.Now; RecordTime.Text = "00:00"; _clock.Start(); }
+        Log.Write("Display: live renderer handed over without PNG replacement");
+        await previous.StopAsync();
+        if (previousRecording != null) NotifySaved("Запись сохранена", previousRecording);
+    }
     private async Task StopAsync()
     {
         var recording = _session.RecordingPath;
@@ -225,7 +266,7 @@ public sealed partial class MainWindow : Window
         EmptyState.Visibility = Visibility.Collapsed;
         Log.Write("Display: holding frame");
     }
-    private void FitToPhone()
+    private void SetInitialSize()
     {
         var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
         var height = area.Height;
@@ -233,12 +274,25 @@ public sealed partial class MainWindow : Window
         if (AppWindow.Presenter is OverlappedPresenter presenter) presenter.Restore();
         AppWindow.MoveAndResize(new RectInt32(area.X + (area.Width - width) / 2, area.Y, width, height));
     }
-    private void PositionScreen()
+    private void FitToPhone()
+    {
+        var position = AppWindow.Position;
+        var height = AppWindow.Size.Height;
+        if (AppWindow.Presenter is OverlappedPresenter presenter && presenter.State == OverlappedPresenterState.Maximized) presenter.Restore();
+        var frame = Native.NonClientSize(_hwnd);
+        var scale = Root.XamlRoot?.RasterizationScale ?? Native.DpiScale(_hwnd);
+        var clientHeight = Math.Max(1, height - frame.Height);
+        var phoneAspect = _session.VideoAspect ?? _aspect;
+        var width = (int)Math.Round(clientHeight * phoneAspect) + (int)Math.Round(44 * scale) + frame.Width;
+        AppWindow.MoveAndResize(new RectInt32(position.X, position.Y, Math.Max(150, width), height));
+        Log.Write($"Window fit: width={width}, height preserved={height}, aspect={phoneAspect:F6}");
+    }
+    private void PositionScreen(nint insertAfter = 0)
     {
         if (!_frameReady || _session.Window == 0 || Native.GetParent(_session.Window) != _hwnd || Root.XamlRoot == null) return;
         var point = Viewport.TransformToVisual(Root).TransformPoint(new Point());
         var scale = Root.XamlRoot.RasterizationScale;
-        Native.SetWindowPos(_session.Window, 0, (int)Math.Round(point.X * scale), (int)Math.Round(point.Y * scale), Math.Max(1, (int)Math.Round(Viewport.ActualWidth * scale)), Math.Max(1, (int)Math.Round(Viewport.ActualHeight * scale)), 0x0010 | 0x0040 | 0x0020);
+        Native.SetWindowPos(_session.Window, insertAfter, (int)Math.Round(point.X * scale), (int)Math.Round(point.Y * scale), Math.Max(1, (int)Math.Round(Viewport.ActualWidth * scale)), Math.Max(1, (int)Math.Round(Viewport.ActualHeight * scale)), 0x0010 | 0x0040 | 0x0020);
     }
     private void UpdateControls()
     {
@@ -282,14 +336,7 @@ public sealed partial class MainWindow : Window
             var extension = _preferences.RecordingFormat == "mkv" ? "mkv" : "mp4";
             next = Path.Combine(Videos, $"Recording_{DateTime.Now:yyyy-MM-dd_HH-mm-ss-fff}.{extension}");
         }
-        await StopAsync();
-        try { await StartAsync(serial, next); }
-        catch when (next != null)
-        {
-            // A failed audio encoder must not leave the phone disconnected or silently record without audio.
-            await StartAsync(serial);
-            throw new IOException("Не удалось начать запись. Трансляция восстановлена. Если Android не поддерживает захват звука, выключите звук записи в настройках. Подробности — в локальном журнале.");
-        }
+        await ReplaceSessionAsync(serial, next);
     });
     private async void KeyClick(object sender, RoutedEventArgs e)
     {
@@ -326,7 +373,7 @@ public sealed partial class MainWindow : Window
                 preferences.Save();
                 _preferences = preferences;
                 if (preferences.AutoConnect) { _userStopped = false; _failedSerial = null; }
-                if (_session.Running && serial != null) { await StopAsync(); await StartAsync(serial); }
+                if (_session.Running && serial != null) await ReplaceSessionAsync(serial);
                 applied = true;
             });
             return applied;
@@ -346,8 +393,8 @@ public sealed partial class MainWindow : Window
             {
                 if (_serial == serial && _session.Running) return;
                 _userStopped = false; _failedSerial = null; _selectedSerial = serial;
-                await StopAsync();
-                await StartAsync(serial);
+                if (_session.Running) await ReplaceSessionAsync(serial);
+                else await StartAsync(serial);
             });
         };
         window.Activate();

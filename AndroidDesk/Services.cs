@@ -125,13 +125,15 @@ internal sealed class ScrcpySession
     public nint Window { get; private set; }
     public bool Running => _process is { HasExited: false };
     public string? RecordingPath { get; private set; }
+    private int _videoWidth, _videoHeight;
+    public double? VideoAspect => Volatile.Read(ref _videoHeight) is var height && height > 0 ? (double)Volatile.Read(ref _videoWidth) / height : null;
     public event Action? Exited;
     public async Task StartAsync(AdbService tools, string serial, Preferences settings, string? recording, Action<nint>? prepareWindow = null)
     {
         if (_process != null) throw new InvalidOperationException("Сессия уже запущена.");
         var info = new ProcessStartInfo(tools.Scrcpy) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = tools.Tools, RedirectStandardOutput = true, RedirectStandardError = true };
         info.Environment["ADB"] = tools.Adb;
-        foreach (var arg in new[] {"--serial", serial, "--window-title=AndroidDesk • scrcpy", "--video-codec=h264", $"--max-size={settings.MaxSize}", $"--max-fps={settings.Fps}", $"--video-bit-rate={settings.Bitrate}M", "--video-buffer=0", "--no-window-aspect-ratio-lock", "--window-width=420", "--window-height=780"}) info.ArgumentList.Add(arg);
+        foreach (var arg in new[] {"--serial", serial, "--window-title=AndroidDesk • scrcpy", "--video-codec=h264", $"--max-size={settings.MaxSize}", $"--max-fps={settings.Fps}", $"--video-bit-rate={settings.Bitrate}M", "--video-buffer=0", "--background-color=101317", "--no-window-aspect-ratio-lock", "--window-width=420", "--window-height=780"}) info.ArgumentList.Add(arg);
         if (recording != null && settings.RecordAudio)
         {
             info.ArgumentList.Add("--audio-codec=aac");
@@ -149,7 +151,16 @@ internal sealed class ScrcpySession
         {
             if (e.Data == null) return;
             Log.Write("scrcpy: " + e.Data);
-            if (e.Data.Contains("Texture", StringComparison.Ordinal) && e.Data.Contains('x')) firstFrame.TrySetResult();
+            if (e.Data.Contains("Texture", StringComparison.Ordinal))
+            {
+                var size = System.Text.RegularExpressions.Regex.Match(e.Data, @"(\d+)x(\d+)");
+                if (size.Success)
+                {
+                    Volatile.Write(ref _videoWidth, int.Parse(size.Groups[1].Value));
+                    Volatile.Write(ref _videoHeight, int.Parse(size.Groups[2].Value));
+                    firstFrame.TrySetResult();
+                }
+            }
         }
         process.OutputDataReceived += ReadLine;
         process.ErrorDataReceived += ReadLine;

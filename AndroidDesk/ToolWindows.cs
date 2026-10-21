@@ -203,10 +203,15 @@ internal sealed class NotificationWindow : Window
             };
             Grid.SetColumn(open, 2); layout.Children.Add(open);
         }
-        Content = new Border { Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 35, 37, 42)), CornerRadius = new CornerRadius(12), Child = layout };
+        Content = new Border { Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 35, 37, 42)), CornerRadius = new CornerRadius(6), Child = layout };
         _timer.Interval = TimeSpan.FromSeconds(error ? 7 : 3);
         _timer.Tick += (_, _) => Close();
         Closed += (_, _) => _timer.Stop();
     }
-    public void ShowWithoutFocus() { AppWindow.Show(false); _timer.Start(); }
+    public void ShowWithoutFocus()
+    {
+        AppWindow.Show(false);
+        Native.MakeTransient(WinRT.Interop.WindowNative.GetWindowHandle(this));
+        _timer.Start();
+    }
 }

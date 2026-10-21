@@ -20,11 +20,33 @@ internal static class Native
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(nint window, uint attribute, ref uint value, uint size);
     internal static void MakeTransient(nint window)
     {
-        SetStyle(window, -20, (nint)(((long)GetStyle(window, -20) | 0x08000080L) & ~0x00040000L));
-        uint border = 0xFFFFFFFE;
+        SetStyle(window, -16, (nint)((long)GetStyle(window, -16) & ~0x00C40000L));
+        SetStyle(window, -20, (nint)(((long)GetStyle(window, -20) | 0x08000080L) & ~0x00060300L));
+        uint policy = 1; // DWMNCRP_DISABLED: no system frame around the notification.
+        DwmSetWindowAttribute(window, 2, ref policy, 4);
+        uint border = 0; // Black even if a compositor falls back to drawing an outline.
         DwmSetWindowAttribute(window, 34, ref border, 4);
-        uint corner = 2;
+        uint corner = 3; // Small corners on Windows 11.
         DwmSetWindowAttribute(window, 33, ref corner, 4);
+        GetWindowRect(window, out var bounds);
+        var radius = Math.Max(8, (int)Math.Round(12 * DpiScale(window)));
+        var region = CreateRoundRectRgn(1, 1, bounds.Right - bounds.Left - 1, bounds.Bottom - bounds.Top - 1, radius, radius);
+        if (region != 0 && SetWindowRgn(window, region, true) == 0) DeleteObject(region);
+        SetWindowPos(window, 0, 0, 0, 0, 0, 0x0010 | 0x0001 | 0x0002 | 0x0004 | 0x0020);
+    }
+    [StructLayout(LayoutKind.Sequential)] private struct Rect { public int Left, Top, Right, Bottom; }
+    [DllImport("user32.dll")] private static extern bool GetWindowRect(nint window, out Rect bounds);
+    [DllImport("user32.dll")] private static extern bool GetClientRect(nint window, out Rect bounds);
+    [DllImport("user32.dll")] private static extern uint GetDpiForWindow(nint window);
+    [DllImport("gdi32.dll")] private static extern nint CreateRoundRectRgn(int left, int top, int right, int bottom, int widthEllipse, int heightEllipse);
+    [DllImport("user32.dll")] private static extern int SetWindowRgn(nint window, nint region, bool redraw);
+    [DllImport("gdi32.dll")] private static extern bool DeleteObject(nint value);
+    internal static double DpiScale(nint window) => GetDpiForWindow(window) / 96d;
+    internal static (int Width, int Height) NonClientSize(nint window)
+    {
+        GetWindowRect(window, out var outer);
+        GetClientRect(window, out var client);
+        return (outer.Right - outer.Left - client.Right + client.Left, outer.Bottom - outer.Top - client.Bottom + client.Top);
     }
     internal static nint FindWindow(int process)
     {
