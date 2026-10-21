@@ -75,11 +75,6 @@ internal sealed class SettingsWindow : Window
             LanguageRequested?.Invoke(preferences.Language);
         };
         AddField(panel, L.T("Язык интерфейса"), _language);
-        panel.Children.Add(new TextBlock { Text = L.T("Язык применяется сразу. Системный: русский для русской Windows, английский для остальных языков."), FontSize = 12, Opacity = 0.65, TextWrapping = TextWrapping.Wrap });
-        var author = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        author.Children.Add(new TextBlock { Text = L.T("Автор"), VerticalAlignment = VerticalAlignment.Center, Opacity = 0.65 });
-        author.Children.Add(new HyperlinkButton { Content = "SPomodor", NavigateUri = new Uri("https://github.com/SPomodor"), Padding = new Thickness(0, 4, 0, 4) });
-        panel.Children.Add(author);
         if (recording) panel.Children.Add(new TextBlock { Text = L.T("Для изменения настроек сначала остановите запись."), TextWrapping = TextWrapping.Wrap });
         AddChoices(_resolution, [("720 px", 720), ("960 px", 960), ("1280 px", 1280), ("1600 px", 1600), ("1920 px", 1920), ("2560 px", 2560), (L.T("Оригинальное"), 0)], preferences.MaxSize);
         AddChoices(_fps, [("30 FPS", 30), ("60 FPS", 60), ("90 FPS", 90), ("120 FPS", 120)], preferences.Fps);
@@ -120,6 +115,10 @@ internal sealed class SettingsWindow : Window
         var videos = new Button { Content = L.T("Открыть видеозаписи"), HorizontalAlignment = HorizontalAlignment.Stretch };
         videos.Click += (_, _) => { try { WindowStyle.OpenFolder(MainWindow.Videos); } catch (Exception ex) { Log.Write(ex.ToString()); } };
         panel.Children.Add(videos);
+        var author = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 8, 0, 0) };
+        author.Children.Add(new TextBlock { Text = "by", VerticalAlignment = VerticalAlignment.Center, FontSize = 12, Opacity = 0.65 });
+        author.Children.Add(new HyperlinkButton { Content = "SPomodor", NavigateUri = new Uri("https://github.com/SPomodor"), FontSize = 12, Padding = new Thickness(0, 4, 0, 4) });
+        panel.Children.Add(author);
         var root = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Background = (Brush)Application.Current.Resources["ApplicationPageBackgroundThemeBrush"] };
         Content = root;
         root.Loaded += (_, _) => WindowStyle.Apply(this, root);

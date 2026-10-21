@@ -133,8 +133,6 @@
   "Экран внутри приложения": "Screen inside the app",
   "Системный": "System default",
   "Язык интерфейса": "Interface language",
-  "Язык применяется сразу. Системный: русский для русской Windows, английский для остальных языков.": "Language changes apply immediately. System default uses Russian for Russian Windows and English for other system languages.",
-  "Автор": "Author",
   "Последний кадр": "Last frame",
   "Включите USB-отладку и разрешите подключение на телефоне. Выбрать устройство можно кнопкой справа.": "Enable USB debugging and authorize the connection on your phone. Select a device using the button on the right.",
   "Быстрые команды ADB": "Quick ADB commands",
