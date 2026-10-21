@@ -16,3 +16,5 @@
 *.jpg binary
 *.zip binary
 scrcpy/scrcpy-server binary
+# Preserve upstream license formatting, including intentional blank lines.
+licenses/** text eol=lf -whitespace
