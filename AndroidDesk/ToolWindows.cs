@@ -12,6 +12,7 @@ internal static class WindowStyle
     public static void Apply(Window window, FrameworkElement root)
     {
         UiLanguage.Attach(window, root);
+        window.AppWindow.SetIcon(Branding.IconPath);
         var dark = root.ActualTheme == ElementTheme.Dark;
         var background = dark ? Windows.UI.Color.FromArgb(255, 32, 32, 32) : Windows.UI.Color.FromArgb(255, 243, 243, 243);
         var foreground = dark ? Windows.UI.Color.FromArgb(255, 245, 245, 245) : Windows.UI.Color.FromArgb(255, 25, 25, 25);
@@ -115,6 +116,9 @@ internal sealed class SettingsWindow : Window
         var videos = new Button { Content = L.T("Открыть видеозаписи"), HorizontalAlignment = HorizontalAlignment.Stretch };
         videos.Click += (_, _) => { try { WindowStyle.OpenFolder(MainWindow.Videos); } catch (Exception ex) { Log.Write(ex.ToString()); } };
         panel.Children.Add(videos);
+        var screenshots = new Button { Content = L.T("Открыть скриншоты"), HorizontalAlignment = HorizontalAlignment.Stretch };
+        screenshots.Click += (_, _) => { try { WindowStyle.OpenFolder(AdbService.Screenshots); } catch (Exception ex) { Log.Write(ex.ToString()); } };
+        panel.Children.Add(screenshots);
         panel.Children.Add(new TextBlock { Text = L.T("Навайбкодено с помощью Codex"), FontSize = 12, Opacity = 0.65, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 8, 0, 0) });
         var author = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 8, 0, 0) };
         author.Children.Add(new TextBlock { Text = "by", VerticalAlignment = VerticalAlignment.Center, FontSize = 12, Opacity = 0.65 });

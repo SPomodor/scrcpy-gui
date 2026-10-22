@@ -17,13 +17,13 @@ function Get-PeMachine([string]$File) {
     } finally { $reader.Dispose(); $stream.Dispose() }
 }
 $expected = @{x86 = 0x14C; x64 = 0x8664; arm64 = 0xAA64}[$Architecture]
-foreach ($file in @('AndroidDesk.exe', 'Microsoft.UI.Xaml.dll', 'scrcpy\scrcpy.exe', 'scrcpy\SDL3.dll', 'scrcpy\avcodec-63.dll', 'scrcpy\avformat-63.dll', 'scrcpy\avutil-61.dll', 'scrcpy\swresample-7.dll', 'scrcpy\libusb-1.0.dll')) {
+foreach ($file in @('ScrcpyDesk.exe', 'Microsoft.UI.Xaml.dll', 'scrcpy\scrcpy.exe', 'scrcpy\SDL3.dll', 'scrcpy\avcodec-63.dll', 'scrcpy\avformat-63.dll', 'scrcpy\avutil-61.dll', 'scrcpy\swresample-7.dll', 'scrcpy\libusb-1.0.dll')) {
     $fullPath = Join-Path $Path $file
     if (!(Test-Path -LiteralPath $fullPath)) { throw "Missing package file: $file" }
     $machine = Get-PeMachine $fullPath
     if ($machine -ne $expected) { throw "$file has PE machine $machine; expected $expected for $Architecture." }
 }
-foreach ($file in @('AndroidDesk.dll', 'AndroidDesk.pri', 'MainWindow.xbf', 'scrcpy\scrcpy-server', 'scrcpy\adb.exe', 'scrcpy\AdbWinApi.dll', 'scrcpy\AdbWinUsbApi.dll', 'LICENSE', 'THIRD-PARTY-NOTICES.md', 'licenses\LGPL-2.1.txt', 'scrcpy\LICENSE.txt')) {
+foreach ($file in @('ScrcpyDesk.dll', 'ScrcpyDesk.pri', 'MainWindow.xbf', 'Assets\app.ico', 'scrcpy\scrcpy-server', 'scrcpy\adb.exe', 'scrcpy\AdbWinApi.dll', 'scrcpy\AdbWinUsbApi.dll', 'LICENSE', 'THIRD-PARTY-NOTICES.md', 'licenses\LGPL-2.1.txt', 'scrcpy\LICENSE.txt')) {
     if (!(Test-Path -LiteralPath (Join-Path $Path $file))) { throw "Missing package file: $file" }
 }
 # ADB is a separate process. Official bundles can include x86 ADB even for x64

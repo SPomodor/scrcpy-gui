@@ -161,10 +161,11 @@ internal sealed class AdbService
         if (data.Length < 8 || !data.Take(8).SequenceEqual(new byte[] {137,80,78,71,13,10,26,10})) throw new IOException(L.T("ADB не вернул PNG-изображение."));
         return data;
     }
+    internal static string Screenshots => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "AndroidDesk");
     public async Task<string> ScreenshotAsync(string serial)
     {
         var data = await CaptureFrameAsync(serial);
-        var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "AndroidDesk");
+        var folder = Screenshots;
         Directory.CreateDirectory(folder);
         var path = Path.Combine(folder, $"Screenshot_{DateTime.Now:yyyy-MM-dd_HH-mm-ss-fff}.png");
         await File.WriteAllBytesAsync(path, data);
@@ -187,7 +188,7 @@ internal sealed class ScrcpySession
         if (_process != null) throw new InvalidOperationException(L.T("Сессия уже запущена."));
         var info = new ProcessStartInfo(tools.Scrcpy) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = tools.Tools, RedirectStandardOutput = true, RedirectStandardError = true };
         info.Environment["ADB"] = tools.Adb;
-        foreach (var arg in new[] {"--serial", serial, "--window-title=AndroidDesk • scrcpy", "--video-codec=h264", $"--max-size={settings.MaxSize}", $"--max-fps={settings.Fps}", $"--video-bit-rate={settings.Bitrate}M", "--video-buffer=0", "--background-color=101317", "--no-window-aspect-ratio-lock", "--window-width=420", "--window-height=780"}) info.ArgumentList.Add(arg);
+        foreach (var arg in new[] {"--serial", serial, "--window-title=" + Branding.Name, "--video-codec=h264", $"--max-size={settings.MaxSize}", $"--max-fps={settings.Fps}", $"--video-bit-rate={settings.Bitrate}M", "--video-buffer=0", "--background-color=101317", "--no-window-aspect-ratio-lock", "--window-width=420", "--window-height=780"}) info.ArgumentList.Add(arg);
         info.ArgumentList.Add(settings.PhysicalKeyboard ? "--keyboard=uhid" : "--keyboard=sdk");
         info.ArgumentList.Add("--push-target=/sdcard/Download/");
         if (recording != null && settings.RecordAudio)

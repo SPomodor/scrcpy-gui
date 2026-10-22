@@ -19,7 +19,7 @@ if ($Version) {
     $arguments += "-p:Version=$Version"
 }
 if ($Publish) {
-    if (!$OutputDirectory) { $OutputDirectory = if ($Architecture -eq 'x64') { 'dist\AndroidDesk' } else { "dist\AndroidDesk-$Architecture" } }
+    if (!$OutputDirectory) { $OutputDirectory = if ($Architecture -eq 'x64') { 'dist\ScrcpyDesk' } else { "dist\ScrcpyDesk-$Architecture" } }
     $arguments += @('-o', $OutputDirectory)
     & dotnet publish @arguments
 } else {

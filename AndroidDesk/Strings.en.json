@@ -181,5 +181,8 @@
   "Не удалось: {0}": "Failed: {0}",
   "Подробности в журнале app.log.": "See app.log for details.",
   "Передача: {0}": "Transferring: {0}",
-  "Навайбкодено с помощью Codex": "Vibe-coded with Codex"
+  "Навайбкодено с помощью Codex": "Vibe-coded with Codex",
+  "Открыть скриншоты": "Open screenshots",
+  "Выберите телефон в списке устройств для повторного запуска.": "Select a phone in the device list to restart.",
+  "Выберите телефон через кнопку устройств справа.": "Select a phone using the device button on the right."
 }

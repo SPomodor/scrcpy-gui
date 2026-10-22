@@ -38,6 +38,7 @@ public sealed partial class MainWindow : Window
     private string? _activeFile;
     private bool _filePickerOpen;
     private readonly nint _hwnd;
+    private ShellFileDrop? _shellDrop;
     private bool _polling, _busy, _closing, _allowClose, _userStopped;
     private bool _frameReady;
     private string? _serial, _selectedSerial, _failedSerial;
@@ -59,7 +60,7 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        Title = "Android Desk";
+        Title = Branding.Name;
         SystemBackdrop = new MicaBackdrop();
         _hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
         SetInitialSize();
@@ -73,6 +74,7 @@ public sealed partial class MainWindow : Window
             Clipboard.ContentChanged -= ClipboardChanged;
             _commandShutdown.Cancel();
             _filesShutdown.Cancel();
+            _shellDrop?.Dispose();
             L.Changed -= LanguageChanged;
             _quickCommands.Changed -= RebuildPinnedCommands;
             _settings?.Close(); _devicePicker?.Close(); _commandsWindow?.Close(); _notification?.Close();
@@ -86,6 +88,16 @@ public sealed partial class MainWindow : Window
         {
             WindowStyle.Apply(this, Root);
             Root.XamlRoot.Changed += (_, _) => PositionScreen();
+            try
+            {
+                _shellDrop = new ShellFileDrop(() => !_closing && CommandDevice() != null, paths =>
+                {
+                    var serial = CommandDevice();
+                    if (serial != null) DispatcherQueue.TryEnqueue(() => _ = SendFilesAsync(paths, serial));
+                });
+                _shellDrop.Attach(_hwnd);
+            }
+            catch (Exception ex) { Log.Write("Shell file drop initialization: " + ex); }
             _poll.Start();
             _inputFocus.Start();
             await PollAsync();
@@ -144,7 +156,7 @@ public sealed partial class MainWindow : Window
                 _failedSerial = _serial;
                 var recording = _session.RecordingPath;
                 await StopAsync();
-                if (recording == null) Notify(L.T("Трансляция завершена"), L.T("Нажмите кнопку подключения для повторного запуска."));
+                if (recording == null) Notify(L.T("Трансляция завершена"), L.T("Выберите телефон в списке устройств для повторного запуска."));
             });
         });
     }
@@ -219,6 +231,7 @@ public sealed partial class MainWindow : Window
             {
                 if (_preferences.External) return;
                 Native.Embed(window, _hwnd);
+                _shellDrop?.Attach(window);
                 var scale = Root.XamlRoot?.RasterizationScale ?? 1;
                 Native.SetWindowPos(window, 0, -32000, 0, Math.Max(1, (int)(Viewport.ActualWidth * scale)), Math.Max(1, (int)(Viewport.ActualHeight * scale)), 0x0010 | 0x0040 | 0x0020);
             });
@@ -268,6 +281,7 @@ public sealed partial class MainWindow : Window
             {
                 if (_preferences.External) return;
                 Native.Embed(window, _hwnd);
+                _shellDrop?.Attach(window);
                 var scale = Root.XamlRoot?.RasterizationScale ?? 1;
                 Native.SetWindowPos(window, 0, -32000, 0, Math.Max(1, (int)Math.Round(Viewport.ActualWidth * scale)), Math.Max(1, (int)Math.Round(Viewport.ActualHeight * scale)), 0x0010 | 0x0040 | 0x0020);
             });
@@ -290,6 +304,7 @@ public sealed partial class MainWindow : Window
         _clock.Stop();
         if (recording != null) { _recordStarted = DateTime.Now; RecordTime.Text = "00:00"; _clock.Start(); }
         Log.Write("Display: live renderer handed over without PNG replacement");
+        _shellDrop?.Detach(previous.Window);
         await previous.StopAsync();
         if (_phoneInputActive && !_preferences.External) Native.FocusEmbedded(_hwnd, replacement.Window);
         _ = EnsureClipboardAsync(serial);
@@ -306,6 +321,7 @@ public sealed partial class MainWindow : Window
         _frameReady = false;
         try
         {
+            _shellDrop?.Detach(_session.Window);
             await _session.StopAsync();
             if (recording != null && !_closing) NotifySaved(L.T("Запись сохранена"), recording);
         }
@@ -316,7 +332,7 @@ public sealed partial class MainWindow : Window
             FrozenFrame.Visibility = FrozenFrame.Source == null ? Visibility.Collapsed : Visibility.Visible;
             EmptyState.Visibility = FrozenFrame.Source == null ? Visibility.Visible : Visibility.Collapsed;
             EmptyTitle.Text = L.T("Трансляция остановлена");
-            EmptyHint.Text = L.T("Подключиться — кнопка справа. Выбрать телефон — значок телефона.");
+            EmptyHint.Text = L.T("Выберите телефон через кнопку устройств справа.");
         }
     }
     private async void ClipboardChanged(object? sender, object e)
@@ -422,8 +438,6 @@ public sealed partial class MainWindow : Window
     }
     private void UpdateControls()
     {
-        ConnectButton.IsEnabled = !_busy && (_session.Running || _selectedSerial != null);
-        ToolTipService.SetToolTip(ConnectButton, _session.Running ? L.T("Отключить") : L.T("Подключить"));
         foreach (var button in PhoneControls.Children.OfType<Button>()) button.IsEnabled = _devices.Any(x => x.Serial == (_serial ?? _selectedSerial));
         RecordButton.IsEnabled = !_busy && _session.Running;
         var recording = _session.RecordingPath != null;
@@ -445,11 +459,6 @@ public sealed partial class MainWindow : Window
         window.Closed += (_, _) => { if (_notification == window) _notification = null; };
         window.ShowWithoutFocus();
     }
-    private async void ConnectClick(object sender, RoutedEventArgs e) => await ExecuteAsync(async () =>
-    {
-        if (_session.Running) { _userStopped = true; await StopAsync(); }
-        else if (_selectedSerial is string serial) { _userStopped = false; _failedSerial = null; await StartAsync(serial); }
-    });
     private async void RecordClick(object sender, RoutedEventArgs e) => await ExecuteAsync(async () =>
     {
         if (_serial == null || !_session.Running) return;

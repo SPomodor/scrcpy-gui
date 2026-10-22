@@ -25,7 +25,6 @@
         <Button x:Name="FilesButton" Style="{StaticResource QuickButton}" AutomationProperties.Name="Установить APK или передать файлы" ToolTipService.ToolTip="Установить APK или передать файлы" Click="FilesClick">
           <Grid><FontIcon x:Name="FilesIcon" Glyph="&#xE898;" FontSize="16"/><ProgressRing x:Name="FilesProgress" Width="20" Height="20" IsActive="False" Visibility="Collapsed"/></Grid>
         </Button>
-        <Button x:Name="ConnectButton" Style="{StaticResource QuickButton}" Content="&#xE8D4;" AutomationProperties.Name="Подключить или отключить" ToolTipService.ToolTip="Подключить / отключить" Click="ConnectClick"/>
         <Border Height="1" Margin="5,5" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
         <StackPanel x:Name="PhoneControls" Spacing="2">
           <Button Style="{StaticResource QuickButton}" Content="&#xE72B;" AutomationProperties.Name="Назад" ToolTipService.ToolTip="Назад" Tag="4" Click="KeyClick"/>

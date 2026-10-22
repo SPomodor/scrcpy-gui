@@ -1,5 +1,11 @@
 using AndroidDesk;
 
+if (args is ["--shell-drop"])
+{
+    await ShellDropSmoke.RunAsync();
+    Console.WriteLine("Windows CF_HDROP: multiple Unicode paths, APK extension and rejecting drops without a phone passed.");
+    return 0;
+}
 if (args is ["--apk-test", var apkDevice, var apkPath])
 {
     const string package = "dev.spomodor.androiddesk.transfertest";

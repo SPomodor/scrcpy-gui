@@ -1,6 +1,6 @@
 # Third-party software
 
-The [MIT license](LICENSE) covers the Android Desk / scrcpy GUI application code and documentation by SPomodor. It does not replace the licenses of bundled tools, libraries or Microsoft runtime components.
+The [MIT license](LICENSE) covers the scrcpy Desk application code and documentation by SPomodor. It does not replace the licenses of bundled tools, libraries or Microsoft runtime components.
 
 ## scrcpy bundle
 

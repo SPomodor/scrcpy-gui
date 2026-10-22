@@ -1,8 +1,8 @@
-# scrcpy GUI
+# scrcpy Desk
 
 **English** · [Русский](README.ru.md)
 
-A compact Windows app for controlling an Android phone with **C# / WinUI 3**, **ADB** and the existing **scrcpy** engine. The app window is called **Android Desk**.
+A compact Windows app for controlling an Android phone with **C# / WinUI 3**, **ADB** and the existing **scrcpy** engine. The app window is called **scrcpy Desk**.
 
 The phone screen fills the window, with a narrow quick access toolbar on the right. Settings, device selection and saved commands open in separate windows.
 
@@ -32,7 +32,7 @@ The published app includes .NET and Windows App SDK; a separate runtime installa
 
 ## Portable downloads
 
-Download a ZIP from [Releases](https://github.com/SPomodor/scrcpy-gui/releases), extract it to its own folder and run `AndroidDesk.exe` inside. Keep the entire extracted folder together. There is no installer or single-file EXE.
+Download a ZIP from [Releases](https://github.com/SPomodor/scrcpy-gui/releases), extract it to its own folder and run `ScrcpyDesk.exe` inside. Keep the entire extracted folder together. There is no installer or single-file EXE.
 
 | Archive suffix | Windows PC |
 | --- | --- |
@@ -54,19 +54,19 @@ cd scrcpy-gui
 Or build directly:
 
 ```powershell
-dotnet publish .\AndroidDesk\AndroidDesk.csproj -c Release -p:Platform=x64 -o .\dist\AndroidDesk
-& '.\dist\AndroidDesk\AndroidDesk.exe'
+dotnet publish .\AndroidDesk\AndroidDesk.csproj -c Release -p:Platform=x64 -o .\dist\ScrcpyDesk
+& '.\dist\ScrcpyDesk\ScrcpyDesk.exe'
 ```
 
-After publishing, you can also double-click `Android Desk.cmd`. To move the app to another computer, copy the **entire** `dist/AndroidDesk` folder. Close the running app before publishing into the same folder again.
+After publishing, you can also double-click `scrcpy Desk.cmd`. To move the app to another computer, copy the **entire** `dist/ScrcpyDesk` folder. Close the running app before publishing into the same folder again.
 
 The repository includes the supplied **scrcpy 5.0.1 Windows x64 bundle** in `scrcpy/`. Other architectures and release packaging download matching official 5.0.1 bundles with pinned SHA-256 checksums; caches stay in ignored `artifacts/tools/`. Tools are copied into the app output. The clipboard bridge uses the matching scrcpy-server protocol, so do not replace just one binary with an unrelated version.
 
 The [Windows workflow](.github/workflows/build.yml) builds and validates x64, x86 and ARM64 ZIP packages. Main-branch and PR builds upload Actions artifacts; version tags also publish permanent GitHub Release assets after all three builds succeed.
 
 ```powershell
-.\build.ps1 -Publish -Architecture x86       # dist/AndroidDesk-x86
-.\build.ps1 -Publish -Architecture arm64     # dist/AndroidDesk-arm64
+.\build.ps1 -Publish -Architecture x86       # dist/ScrcpyDesk-x86
+.\build.ps1 -Publish -Architecture arm64     # dist/ScrcpyDesk-arm64
 .\scripts\New-ReleasePackage.ps1 -Architecture x64 -Version 1.0.0
 ```
 
@@ -126,7 +126,9 @@ Drop `.apk` files onto the phone screen to install them. Drop other files or fol
 
 Transfers show a small activity indicator and completion/error notifications. Toolbar drops and file-picker transfers run in a background queue, keep the phone selected when submitted, and leave the other controls available. APK updates use `adb install -r`; Android still checks signatures and installation permissions. Existing files with the same names may be overwritten.
 
-Screen drops use scrcpy's built-in transfer support. Restarting that scrcpy session (for example, to change recording settings) can interrupt its transfer; use the toolbar or file picker for transfers that should continue through a stream restart. Transfer errors are reported without restarting the stream.
+In embedded mode, screen and toolbar drops use the app's Windows shell drop handler and background ADB queue. They continue through stream restarts. In separate-window mode, drops onto the standalone scrcpy window use scrcpy's built-in transfer support and depend on that session. Transfer errors do not restart the stream.
+
+Open the screenshot folder from **⋯ Settings → Open screenshots**.
 
 ## Language and local files
 
@@ -154,6 +156,7 @@ USB usually gives the lowest latency. Wi-Fi performance depends on the network. 
 dotnet run --project .\AndroidDesk.Smoke -- --language
 dotnet run --project .\AndroidDesk.Smoke -- --wifi-validation
 dotnet run --project .\AndroidDesk.Smoke -- --file-validation
+dotnet run --project .\AndroidDesk.Smoke -- --shell-drop
 ```
 
 Real-device checks, run individually with a ready phone:

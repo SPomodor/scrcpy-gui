@@ -54,6 +54,9 @@ jobs:
       - name: Check file-drop events
         if: matrix.architecture == 'x64'
         run: dotnet run --project ./AndroidDesk.Smoke -- --file-validation
+      - name: Check Windows shell drops
+        if: matrix.architecture == 'x64'
+        run: dotnet run --project ./AndroidDesk.Smoke -- --shell-drop
       - name: Upload portable ZIP and checksum
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
