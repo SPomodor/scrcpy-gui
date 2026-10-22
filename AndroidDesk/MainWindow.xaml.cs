@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Input;
 using Windows.Storage.Streams;
+using Windows.Storage.Pickers;
 using Windows.ApplicationModel.DataTransfer;
 using Microsoft.UI.Windowing;
 using Windows.Foundation;
@@ -30,6 +31,12 @@ public sealed partial class MainWindow : Window
     private readonly SemaphoreSlim _operation = new(1, 1);
     private readonly SemaphoreSlim _commands = new(1, 1);
     private readonly SemaphoreSlim _screenshots = new(1, 1);
+    private readonly SemaphoreSlim _files = new(1, 1);
+    private readonly CancellationTokenSource _filesShutdown = new();
+    private readonly Dictionary<ScrcpySession, string> _nativeFileDrops = [];
+    private int _pendingFileBatches;
+    private string? _activeFile;
+    private bool _filePickerOpen;
     private readonly nint _hwnd;
     private bool _polling, _busy, _closing, _allowClose, _userStopped;
     private bool _frameReady;
@@ -65,9 +72,11 @@ public sealed partial class MainWindow : Window
             _poll.Stop(); _clock.Stop(); _inputFocus.Stop();
             Clipboard.ContentChanged -= ClipboardChanged;
             _commandShutdown.Cancel();
+            _filesShutdown.Cancel();
             L.Changed -= LanguageChanged;
             _quickCommands.Changed -= RebuildPinnedCommands;
             _settings?.Close(); _devicePicker?.Close(); _commandsWindow?.Close(); _notification?.Close();
+            if (await _files.WaitAsync(TimeSpan.FromSeconds(3))) _files.Release();
             await ExecuteAsync(async () => await StopAsync());
             _allowClose = true;
             Close();
@@ -122,8 +131,14 @@ public sealed partial class MainWindow : Window
     }
     private void ObserveSession(ScrcpySession session)
     {
+        session.FileDrop += update => DispatcherQueue.TryEnqueue(() => HandleNativeFileDrop(session, update));
         session.Exited += () => DispatcherQueue.TryEnqueue(() =>
         {
+            if (_nativeFileDrops.Remove(session, out var interrupted))
+            {
+                UpdateFileActivity();
+                if (!_closing) Notify(L.T("Передача прервана"), L.F("Повторите передачу файла: {0}", Path.GetFileName(interrupted)), error: true);
+            }
             if (ReferenceEquals(session, _session) && !_busy && !_closing) _ = ExecuteAsync(async () =>
             {
                 _failedSerial = _serial;
@@ -504,10 +519,110 @@ public sealed partial class MainWindow : Window
         window.Activate();
     }
     private string? CommandDevice() => _devices.Any(x => x.Serial == (_serial ?? _selectedSerial)) ? _serial ?? _selectedSerial : null;
+    private void FilesDragOver(object sender, DragEventArgs e)
+    {
+        e.Handled = true;
+        e.AcceptedOperation = !_closing && CommandDevice() != null && e.DataView.Contains(StandardDataFormats.StorageItems) ? DataPackageOperation.Copy : DataPackageOperation.None;
+        e.DragUIOverride.Caption = L.T(CommandDevice() == null ? "Сначала подключите и выберите телефон." : "APK → установить · файлы и папки → Download");
+    }
+    private async void FilesDrop(object sender, DragEventArgs e)
+    {
+        e.Handled = true;
+        if (_closing || !e.DataView.Contains(StandardDataFormats.StorageItems)) return;
+        var serial = CommandDevice();
+        if (serial == null) return;
+        var deferral = e.GetDeferral();
+        string[] paths = [];
+        try { paths = (await e.DataView.GetStorageItemsAsync()).Select(x => x.Path).Where(x => !string.IsNullOrWhiteSpace(x)).ToArray(); }
+        catch (Exception ex) { Notify(L.T("Не удалось прочитать файлы"), ex.Message, error: true); }
+        finally { deferral.Complete(); }
+        if (paths.Length > 0 && !_closing) await SendFilesAsync(paths, serial);
+    }
+    private async void FilesClick(object sender, RoutedEventArgs e)
+    {
+        if (_closing || _filePickerOpen) return;
+        var serial = CommandDevice();
+        if (serial == null) { Notify(L.T("Выберите телефон"), L.T("Сначала подключите и выберите телефон."), error: true); return; }
+        _filePickerOpen = true; _phoneInputActive = false;
+        string[] paths = [];
+        try
+        {
+            var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.Downloads };
+            picker.FileTypeFilter.Add("*");
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, _hwnd);
+            paths = (await picker.PickMultipleFilesAsync()).Select(x => x.Path).ToArray();
+        }
+        catch (Exception ex) { if (!_closing) Notify(L.T("Не удалось прочитать файлы"), ex.Message, error: true); }
+        finally { _filePickerOpen = false; }
+        if (paths.Length > 0 && !_closing) await SendFilesAsync(paths, serial);
+    }
+    private async Task SendFilesAsync(IEnumerable<string> paths, string serial)
+    {
+        var files = paths.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (files.Length == 0 || _closing) return;
+        _pendingFileBatches++; UpdateFileActivity();
+        var entered = false; var succeeded = 0; var failed = 0; string? firstError = null;
+        try
+        {
+            await _files.WaitAsync(_filesShutdown.Token); entered = true;
+            foreach (var path in files)
+            {
+                _filesShutdown.Token.ThrowIfCancellationRequested();
+                _activeFile = Path.GetFileName(Path.TrimEndingDirectorySeparator(path)); UpdateFileActivity();
+                var install = FileTransfers.IsApk(path);
+                Notify(install ? L.T("Установка APK…") : L.T("Передача в Download…"), _activeFile);
+                try
+                {
+                    await FileTransfers.SendAsync(_adb, serial, path, _filesShutdown.Token);
+                    succeeded++;
+                    if (!_closing && files.Length == 1) Notify(L.F(install ? "Установлено: {0}" : "Передано: {0}", _activeFile), serial);
+                }
+                catch (OperationCanceledException) when (_filesShutdown.IsCancellationRequested) { throw; }
+                catch (Exception ex) { failed++; firstError ??= _activeFile + ": " + (ex is OperationCanceledException ? L.T("Телефон не ответил вовремя.") : ex.Message); }
+            }
+            if (!_closing && failed > 0) Notify(L.F("Готово: {0} · ошибок: {1}", succeeded, failed), firstError ?? "", error: true);
+            else if (!_closing && files.Length > 1) Notify(L.F("Готово файлов: {0}", succeeded), serial);
+        }
+        catch (OperationCanceledException) when (_filesShutdown.IsCancellationRequested) { }
+        catch (Exception ex) { if (!_closing) Notify(L.T("Передача не выполнена"), ex.Message, error: true); }
+        finally
+        {
+            if (entered) { _activeFile = null; _files.Release(); }
+            _pendingFileBatches--;
+            if (!_closing) UpdateFileActivity();
+        }
+    }
+    private void HandleNativeFileDrop(ScrcpySession session, FileDropUpdate update)
+    {
+        if (_closing) return;
+        var name = Path.GetFileName(Path.TrimEndingDirectorySeparator(update.Path));
+        if (update.Stage == FileDropStage.Started)
+        {
+            _nativeFileDrops[session] = update.Path;
+            Notify(update.Install ? L.T("Установка APK…") : L.T("Передача в Download…"), name);
+        }
+        else
+        {
+            _nativeFileDrops.Remove(session);
+            if (update.Stage == FileDropStage.Completed) Notify(L.F(update.Install ? "Установлено: {0}" : "Передано: {0}", name), FileTransfers.Destination);
+            else Notify(L.F("Не удалось: {0}", name), update.Error ?? L.T("Подробности в журнале app.log."), error: true);
+        }
+        UpdateFileActivity();
+    }
+    private void UpdateFileActivity()
+    {
+        var busy = _pendingFileBatches > 0 || _nativeFileDrops.Count > 0;
+        FilesProgress.IsActive = busy;
+        FilesProgress.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        FilesIcon.Visibility = busy ? Visibility.Collapsed : Visibility.Visible;
+        var file = _activeFile ?? _nativeFileDrops.Values.LastOrDefault();
+        ToolTipService.SetToolTip(FilesButton, busy ? L.F("Передача: {0}", file == null ? "…" : Path.GetFileName(file)) : L.T("Установить APK или передать файлы"));
+    }
     private void LanguageChanged()
     {
         UpdateControls();
         RebuildPinnedCommands();
+        UpdateFileActivity();
     }
     private void CommandsClick(object sender, RoutedEventArgs e)
     {

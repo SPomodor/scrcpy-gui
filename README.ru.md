@@ -8,6 +8,8 @@
 
 ## Возможности
 
+- Установка APK перетаскиванием и передача файлов и папок на телефон.
+
 - Встроенный экран телефона с управлением мышью и клавиатурой.
 - Автоматическое обнаружение и выбор устройств по USB и Wi-Fi.
 - Беспроводное сопряжение по коду на Android 11+ и подключение по IP:порту.
@@ -118,6 +120,14 @@ adb shell getprop ro.product.model
 
 Аргументы передаются напрямую в ADB, без cmd.exe или PowerShell. Кавычки после `shell` сохраняются для оболочки Android. Пути Windows с пробелами заключайте в двойные кавычки.
 
+## Установка APK и передача файлов
+
+Перетащите `.apk` на экран телефона для установки. Другие файлы и папки копируются в `/sdcard/Download/` выбранного телефона. Можно перетащить их на боковую панель или нажать **«Установить APK или передать файлы»** и выбрать несколько файлов даже без запущенной трансляции.
+
+Во время работы отображается небольшой индикатор, после — уведомление об успехе или ошибке. Передача через панель и выбор файлов работает в фоновой очереди и не блокирует остальные кнопки. Телефон фиксируется в момент отправки. Обновление APK использует `adb install -r`; Android проверяет подпись и разрешение на установку. Файлы с совпадающими именами могут перезаписываться.
+
+Перетаскивание на сам экран использует встроенную передачу scrcpy. Перезапуск этой сессии, например при изменении записи, может прервать её передачу. Для передачи с сохранением работы при перезапуске трансляции используйте боковую панель или выбор файлов. Ошибка передачи сама по себе не перезапускает трансляцию.
+
 ## Язык и локальные файлы
 
 В «⋯ Настройки → Язык интерфейса» доступны «Системный / Русский / English». Системный режим использует русский для `ru-*`, английский — для остальных языков Windows. Переключение применяется сразу без перезапуска трансляции. Названия команд, их текст и вывод устройства не переводятся.
@@ -143,6 +153,7 @@ USB обычно даёт меньшую задержку; Wi-Fi зависит 
 .\build.ps1
 dotnet run --project .\AndroidDesk.Smoke -- --language
 dotnet run --project .\AndroidDesk.Smoke -- --wifi-validation
+dotnet run --project .\AndroidDesk.Smoke -- --file-validation
 ```
 
 Проверки с настоящим телефоном, запускайте по отдельности:
@@ -151,6 +162,7 @@ dotnet run --project .\AndroidDesk.Smoke -- --wifi-validation
 dotnet run --project .\AndroidDesk.Smoke -- DEVICE_SERIAL
 dotnet run --project .\AndroidDesk.Smoke -- DEVICE_SERIAL --clipboard
 dotnet run --project .\AndroidDesk.Smoke -- --commands DEVICE_SERIAL
+dotnet run --project .\AndroidDesk.Smoke -- --files DEVICE_SERIAL
 dotnet run --project .\AndroidDesk.Smoke -- --wifi IP:PORT
 ```
 
@@ -161,5 +173,7 @@ dotnet run --project .\AndroidDesk.Smoke -- --wifi IP:PORT
 Исходники приложения и документация: [MIT](LICENSE), copyright © 2026 SPomodor. Сторонние компоненты сохраняют собственные лицензии: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 Используются [scrcpy](https://github.com/Genymobile/scrcpy), [ADB](https://developer.android.com/tools/adb) и [Windows App SDK](https://github.com/microsoft/WindowsAppSDK). Это независимый GUI-проект.
+
+Навайбкодено с помощью [OpenAI Codex](https://openai.com/codex/).
 
 by [SPomodor](https://github.com/SPomodor)

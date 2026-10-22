@@ -8,6 +8,8 @@ The phone screen fills the window, with a narrow quick access toolbar on the rig
 
 ## Features
 
+- Drag-and-drop APK installation and file/folder transfer to the phone.
+
 - Embedded phone screen with mouse and keyboard input.
 - Automatic device detection and selection of USB or Wi-Fi devices.
 - Wireless debugging pairing by code on Android 11+ and manual IP:port connections.
@@ -118,6 +120,14 @@ Output and exit codes are shown in the command window. Running a pinned command 
 
 Arguments are passed directly to ADB, without cmd.exe or PowerShell. Text after `shell` keeps its Android shell quoting. Use double quotes around Windows file paths containing spaces.
 
+## APK installation and file transfer
+
+Drop `.apk` files onto the phone screen to install them. Drop other files or folders to copy them into `/sdcard/Download/` on the selected phone. You can also drop onto the side toolbar or use **Install APK or send files** to select multiple files without an active mirror.
+
+Transfers show a small activity indicator and completion/error notifications. Toolbar drops and file-picker transfers run in a background queue, keep the phone selected when submitted, and leave the other controls available. APK updates use `adb install -r`; Android still checks signatures and installation permissions. Existing files with the same names may be overwritten.
+
+Screen drops use scrcpy's built-in transfer support. Restarting that scrcpy session (for example, to change recording settings) can interrupt its transfer; use the toolbar or file picker for transfers that should continue through a stream restart. Transfer errors are reported without restarting the stream.
+
 ## Language and local files
 
 Choose **System default / Русский / English** in **⋯ Settings → Interface language**. System default uses Russian for `ru-*` Windows languages and English otherwise. Switching language applies immediately without restarting the stream. User command names, command text and device output are preserved.
@@ -143,6 +153,7 @@ USB usually gives the lowest latency. Wi-Fi performance depends on the network. 
 .\build.ps1                                      # Debug build
 dotnet run --project .\AndroidDesk.Smoke -- --language
 dotnet run --project .\AndroidDesk.Smoke -- --wifi-validation
+dotnet run --project .\AndroidDesk.Smoke -- --file-validation
 ```
 
 Real-device checks, run individually with a ready phone:
@@ -151,6 +162,7 @@ Real-device checks, run individually with a ready phone:
 dotnet run --project .\AndroidDesk.Smoke -- DEVICE_SERIAL
 dotnet run --project .\AndroidDesk.Smoke -- DEVICE_SERIAL --clipboard
 dotnet run --project .\AndroidDesk.Smoke -- --commands DEVICE_SERIAL
+dotnet run --project .\AndroidDesk.Smoke -- --files DEVICE_SERIAL
 dotnet run --project .\AndroidDesk.Smoke -- --wifi IP:PORT
 ```
 
@@ -161,5 +173,7 @@ The first check creates a short MP4/AAC recording. The clipboard check restores 
 Application code and documentation: [MIT](LICENSE), copyright © 2026 SPomodor. Bundled tools and dependencies keep their own licenses; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 Built on [scrcpy](https://github.com/Genymobile/scrcpy), [ADB](https://developer.android.com/tools/adb) and [Windows App SDK](https://github.com/microsoft/WindowsAppSDK). This is an independent GUI project.
+
+Vibe-coded with [OpenAI Codex](https://openai.com/codex/).
 
 by [SPomodor](https://github.com/SPomodor)

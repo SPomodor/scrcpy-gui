@@ -69,12 +69,14 @@ internal sealed class AdbService
             }
         }
     }
-    public async Task<byte[]> RunAsync(IEnumerable<string> args, int timeoutSeconds = 10)
+    public async Task<byte[]> RunAsync(IEnumerable<string> args, int timeoutSeconds = 10, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var start = new ProcessStartInfo(Adb) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = Tools };
         foreach (var arg in args) start.ArgumentList.Add(arg);
         using var process = Process.Start(start) ?? throw new IOException(L.T("Не удалось запустить ADB."));
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
         using var output = new MemoryStream();
         var errors = process.StandardError.ReadToEndAsync(timeout.Token);
         var copy = process.StandardOutput.BaseStream.CopyToAsync(output, timeout.Token);
@@ -82,7 +84,11 @@ internal sealed class AdbService
         {
             await Task.WhenAll(process.WaitForExitAsync(timeout.Token), copy);
             var error = await errors;
-            if (process.ExitCode != 0) throw new IOException(error.Trim());
+            if (process.ExitCode != 0)
+            {
+                var details = string.Join(Environment.NewLine, new[] { error.Trim(), Encoding.UTF8.GetString(output.ToArray()).Trim() }.Where(x => x.Length > 0));
+                throw new IOException(string.IsNullOrWhiteSpace(details) ? $"ADB: exit code {process.ExitCode}" : details);
+            }
             return output.ToArray();
         }
         catch
@@ -175,6 +181,7 @@ internal sealed class ScrcpySession
     private int _videoWidth, _videoHeight;
     public double? VideoAspect => Volatile.Read(ref _videoHeight) is var height && height > 0 ? (double)Volatile.Read(ref _videoWidth) / height : null;
     public event Action? Exited;
+    public event Action<FileDropUpdate>? FileDrop;
     public async Task StartAsync(AdbService tools, string serial, Preferences settings, string? recording, Action<nint>? prepareWindow = null)
     {
         if (_process != null) throw new InvalidOperationException(L.T("Сессия уже запущена."));
@@ -182,6 +189,7 @@ internal sealed class ScrcpySession
         info.Environment["ADB"] = tools.Adb;
         foreach (var arg in new[] {"--serial", serial, "--window-title=AndroidDesk • scrcpy", "--video-codec=h264", $"--max-size={settings.MaxSize}", $"--max-fps={settings.Fps}", $"--video-bit-rate={settings.Bitrate}M", "--video-buffer=0", "--background-color=101317", "--no-window-aspect-ratio-lock", "--window-width=420", "--window-height=780"}) info.ArgumentList.Add(arg);
         info.ArgumentList.Add(settings.PhysicalKeyboard ? "--keyboard=uhid" : "--keyboard=sdk");
+        info.ArgumentList.Add("--push-target=/sdcard/Download/");
         if (recording != null && settings.RecordAudio)
         {
             info.ArgumentList.Add("--audio-codec=aac");
@@ -195,10 +203,17 @@ internal sealed class ScrcpySession
         _process = process;
         RecordingPath = recording;
         var firstFrame = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        string? fileError = null;
         void ReadLine(object sender, DataReceivedEventArgs e)
         {
             if (e.Data == null) return;
             Log.Write("scrcpy: " + e.Data);
+            if (e.Data.StartsWith("Failure [", StringComparison.Ordinal) || e.Data.StartsWith("adb: error:", StringComparison.Ordinal)) fileError = e.Data;
+            if (FileDropUpdate.Parse(e.Data) is { } file)
+            {
+                if (file.Stage == FileDropStage.Started) fileError = null;
+                FileDrop?.Invoke(file with { Error = file.Stage == FileDropStage.Failed ? fileError : null });
+            }
             if (e.Data.Contains("Texture", StringComparison.Ordinal))
             {
                 var size = System.Text.RegularExpressions.Regex.Match(e.Data, @"(\d+)x(\d+)");

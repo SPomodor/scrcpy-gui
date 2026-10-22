@@ -1,5 +1,5 @@
 <Window x:Class="AndroidDesk.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-  <Grid x:Name="Root" Background="#101317">
+  <Grid x:Name="Root" Background="#101317" AllowDrop="True" DragOver="FilesDragOver" Drop="FilesDrop">
     <Grid.Resources>
       <Style x:Key="QuickButton" TargetType="Button">
         <Setter Property="Width" Value="34"/><Setter Property="Height" Value="34"/><Setter Property="MinWidth" Value="0"/><Setter Property="MinHeight" Value="0"/>
@@ -22,6 +22,9 @@
         <Button x:Name="SettingsButton" Style="{StaticResource QuickButton}" Content="&#xE712;" AutomationProperties.Name="Настройки" ToolTipService.ToolTip="Настройки" Click="SettingsClick"/>
         <Button x:Name="DeviceButton" Style="{StaticResource QuickButton}" Content="&#xE772;" AutomationProperties.Name="Выбор устройства" ToolTipService.ToolTip="Выбор устройства" Click="DeviceClick"/>
         <Button Style="{StaticResource QuickButton}" Content="&#xE756;" AutomationProperties.Name="Быстрые команды" ToolTipService.ToolTip="Быстрые команды ADB" Click="CommandsClick"/>
+        <Button x:Name="FilesButton" Style="{StaticResource QuickButton}" AutomationProperties.Name="Установить APK или передать файлы" ToolTipService.ToolTip="Установить APK или передать файлы" Click="FilesClick">
+          <Grid><FontIcon x:Name="FilesIcon" Glyph="&#xE898;" FontSize="16"/><ProgressRing x:Name="FilesProgress" Width="20" Height="20" IsActive="False" Visibility="Collapsed"/></Grid>
+        </Button>
         <Button x:Name="ConnectButton" Style="{StaticResource QuickButton}" Content="&#xE8D4;" AutomationProperties.Name="Подключить или отключить" ToolTipService.ToolTip="Подключить / отключить" Click="ConnectClick"/>
         <Border Height="1" Margin="5,5" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
         <StackPanel x:Name="PhoneControls" Spacing="2">

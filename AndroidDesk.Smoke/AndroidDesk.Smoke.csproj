@@ -9,6 +9,7 @@
     <Compile Include="..\AndroidDesk\QuickCommands.cs" Link="QuickCommands.cs"/>
     <Compile Include="..\AndroidDesk\Services.cs" Link="Services.cs"/>
     <Compile Include="..\AndroidDesk\Native.cs" Link="Native.cs"/>
+    <Compile Include="..\AndroidDesk\FileTransfers.cs" Link="FileTransfers.cs"/>
     <Compile Include="..\AndroidDesk\ClipboardBridge.cs" Link="ClipboardBridge.cs"/>
   </ItemGroup>
 </Project>

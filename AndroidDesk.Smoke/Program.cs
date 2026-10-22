@@ -1,5 +1,81 @@
 using AndroidDesk;
 
+if (args is ["--apk-test", var apkDevice, var apkPath])
+{
+    const string package = "dev.spomodor.androiddesk.transfertest";
+    var adb = new AdbService();
+    var existing = System.Text.Encoding.UTF8.GetString(await adb.RunAsync(["-s", apkDevice, "shell", "pm", "list", "packages", package]));
+    if (existing.Contains(package)) throw new Exception("Test package already exists; refusing to replace it.");
+    try
+    {
+        await FileTransfers.SendAsync(adb, apkDevice, apkPath, default);
+        await FileTransfers.SendAsync(adb, apkDevice, apkPath, default);
+        var installed = System.Text.Encoding.UTF8.GetString(await adb.RunAsync(["-s", apkDevice, "shell", "pm", "list", "packages", package]));
+        if (!installed.Contains("package:" + package)) throw new Exception("Test APK not installed.");
+        Console.WriteLine("Real-device APK installation and replacement passed.");
+    }
+    finally { await adb.RunAsync(["-s", apkDevice, "uninstall", package]); }
+    return 0;
+}
+if (args is ["--file-validation"] || args.Length == 2 && args[0] == "--files")
+{
+    const string sample = @"C:\My files\тест.APK";
+    foreach (var (line, install, stage) in new[] {
+        ($"INFO: Installing {sample}...", true, FileDropStage.Started),
+        ($"INFO: Pushing {sample}...", false, FileDropStage.Started),
+        ($"INFO: {sample} successfully installed", true, FileDropStage.Completed),
+        ($"INFO: {sample} successfully pushed to /sdcard/Download/", false, FileDropStage.Completed),
+        ($"ERROR: Failed to install {sample}", true, FileDropStage.Failed),
+        ($"ERROR: Failed to push {sample} to /sdcard/Download/", false, FileDropStage.Failed) })
+    {
+        var parsed = FileDropUpdate.Parse(line);
+        if (parsed?.Path != sample || parsed.Install != install || parsed.Stage != stage) throw new Exception("File event parsing failed: " + line);
+    }
+    if (FileDropUpdate.Parse("INFO: Renderer: direct3d") != null) throw new Exception("Unrelated log accepted.");
+    var root = Path.Combine(Path.GetTempPath(), "AndroidDesk-files-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(root);
+    try
+    {
+        var invalidApk = Path.Combine(root, "invalid.APK");
+        await File.WriteAllTextAsync(invalidApk, "Not an Android package");
+        if (!FileTransfers.IsApk(invalidApk) || FileTransfers.IsApk(root)) throw new Exception("APK detection failed.");
+        var adb = new AdbService();
+        try { await FileTransfers.SendAsync(adb, "unused", Path.Combine(root, "missing"), default); throw new Exception("Missing file accepted."); }
+        catch (FileNotFoundException) { }
+        if (args.Length == 2)
+        {
+            var device = args[1];
+            var testFolder = Path.Combine(root, "AndroidDesk-test-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(testFolder);
+            var name = "проверка с пробелом.txt";
+            var bytes = System.Text.Encoding.UTF8.GetBytes("Android Desk · UTF-8 transfer ✅");
+            await File.WriteAllBytesAsync(Path.Combine(testFolder, name), bytes);
+            var remote = FileTransfers.Destination + Path.GetFileName(testFolder);
+            var single = Path.Combine(root, "AndroidDesk-" + Guid.NewGuid().ToString("N") + " файл.txt");
+            await File.WriteAllBytesAsync(single, bytes);
+            var singleRemote = FileTransfers.Destination + Path.GetFileName(single);
+            try
+            {
+                await FileTransfers.SendAsync(adb, device, testFolder, default);
+                var readback = await adb.RunAsync(["-s", device, "exec-out", "cat", remote + "/" + name ]);
+                if (!readback.SequenceEqual(bytes)) throw new Exception("Folder Unicode round trip failed: " + Convert.ToHexString(readback) + " / " + Convert.ToHexString(bytes));
+                await FileTransfers.SendAsync(adb, device, single, default);
+                readback = await adb.RunAsync(["-s", device, "exec-out", "cat", singleRemote]);
+                if (!readback.SequenceEqual(bytes)) throw new Exception("File Unicode round trip failed.");
+                try { await FileTransfers.SendAsync(adb, device, invalidApk, default); throw new Exception("Invalid APK accepted."); }
+                catch (IOException ex) { if (string.IsNullOrWhiteSpace(ex.Message)) throw new Exception("APK failure diagnostics lost."); }
+                using var cancel = new CancellationTokenSource(); cancel.Cancel();
+                try { await FileTransfers.SendAsync(adb, device, single, cancel.Token); throw new Exception("Cancellation ignored."); }
+                catch (OperationCanceledException) { }
+                Console.WriteLine("Real-device Unicode file/folder round trips, invalid APK diagnostics and cancellation passed.");
+            }
+            finally { await adb.RunAsync(["-s", device, "shell", "rm", "-rf", "'" + remote + "'", "'" + singleRemote + "'"]); }
+        }
+    }
+    finally { Directory.Delete(root, true); }
+    Console.WriteLine("Native drop events, APK detection and missing-file validation passed.");
+    return 0;
+}
 if (args is ["--language"])
 {
     foreach (var (preference, system, expected) in new[] { ("system", "ru-RU", "ru"), ("system", "ru-KZ", "ru"), ("system", "en-US", "en"), ("system", "de-DE", "en"), ("en", "ru-RU", "en"), ("ru", "en-US", "ru"), ("unknown", "ru-RU", "ru") })

@@ -115,6 +115,7 @@ internal sealed class SettingsWindow : Window
         var videos = new Button { Content = L.T("Открыть видеозаписи"), HorizontalAlignment = HorizontalAlignment.Stretch };
         videos.Click += (_, _) => { try { WindowStyle.OpenFolder(MainWindow.Videos); } catch (Exception ex) { Log.Write(ex.ToString()); } };
         panel.Children.Add(videos);
+        panel.Children.Add(new TextBlock { Text = L.T("Навайбкодено с помощью Codex"), FontSize = 12, Opacity = 0.65, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 8, 0, 0) });
         var author = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 8, 0, 0) };
         author.Children.Add(new TextBlock { Text = "by", VerticalAlignment = VerticalAlignment.Center, FontSize = 12, Opacity = 0.65 });
         author.Children.Add(new HyperlinkButton { Content = "SPomodor", NavigateUri = new Uri("https://github.com/SPomodor"), FontSize = 12, Padding = new Thickness(0, 4, 0, 4) });
